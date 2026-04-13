@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}{{ t('scan_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-6 col-lg-5">
+
+    <!-- Camera capture card -->
+    <div class="card bg-dark border-secondary mb-3" id="captureCard">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-camera me-2 text-info"></i>{{ t('scan_title') }}</span>
+      </div>
+      <div class="card-body text-center">
+        <!-- Hidden file input — triggers camera on mobile -->
+        <input type="file" id="receiptInput" accept="image/*" capture="environment" class="d-none">
+
+        <!-- Preview -->
+        <div id="previewWrap" class="d-none mb-3">
+          <img id="preview" class="img-fluid rounded" style="max-height:260px" alt="">
+        </div>
+
+        <!-- Placeholder icon shown before a photo is taken -->
+        <div id="placeholderIcon" class="py-3">
+          <i class="fa-solid fa-receipt fa-4x text-secondary mb-3"></i>
+          <p class="text-muted small">{{ t('scan_tap_hint') }}</p>
+        </div>
+
+        <button type="button" id="cameraBtn" class="btn btn-info text-dark fw-semibold w-100 mb-2">
+          <i class="fa-solid fa-camera me-2"></i>{{ t('scan_take_photo') }}
+        </button>
+
+        <button type="button" id="processBtn" class="btn btn-success w-100 d-none">
+          <span id="processBtnLabel"><i class="fa-solid fa-wand-magic-sparkles me-2"></i>{{ t('scan_extract') }}</span>
+          <span id="processBtnSpinner" class="d-none">
+            <span class="spinner-border spinner-border-sm me-2"></span>{{ t('scan_processing') }}
+          </span>
+        </button>
+
+        <!-- OCR not available notice (shown after a failed OCR attempt) -->
+        <div id="ocrUnavailable" class="alert alert-warning mt-3 d-none text-start" style="font-size:0.8rem">
+          <i class="fa-solid fa-triangle-exclamation me-2"></i>{{ t('scan_ocr_unavailable') }}
+          <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" class="alert-link">Tesseract</a>.
+          <div id="ocrErrorDetail" class="mt-1 text-muted d-none" style="font-size:0.75rem;word-break:break-all;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expense form — pre-filled after OCR or filled manually -->
+    <div class="card bg-dark border-secondary" id="formCard">
+      <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="fa-solid fa-pen-to-square me-2 text-warning"></i>{{ t('scan_confirm_data') }}</span>
+        <span id="autoFilledBadge" class="badge bg-success d-none">{{ t('scan_auto_filled') }}</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('scan.save') }}" id="expenseForm">
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('date') }}</label>
+            <input type="date" name="date" id="fDate"
+                   value="{{ today }}"
+                   class="form-control bg-dark text-light border-secondary">
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span></label>
+            <input type="text" name="store" id="fStore" required
+                   list="store-suggestions"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="z.B. Aldi, Lidl ...">
+            <datalist id="store-suggestions">
+              <option value="Aldi"><option value="Lidl"><option value="Rewe">
+              <option value="Penny"><option value="Kaufland"><option value="Edeka">
+              <option value="Tanken"><option value="Sonstige"><option value="Ausgehen">
+              <option value="Amazon"><option value="Rossmann"><option value="DM">
+            </datalist>
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('amount') }} (€) <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <span class="input-group-text bg-dark text-light border-secondary">€</span>
+              <input type="number" name="amount" id="fAmount" required step="0.01" min="0.01"
+                     class="form-control bg-dark text-light border-secondary"
+                     placeholder="0.00">
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label text-muted small">{{ t('note') }} ({{ t('optional') }})</label>
+            <input type="text" name="notes" id="fNotes"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="{{ t('note_ph') }}">
+          </div>
+          <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-success btn-lg">
+              <i class="fa-solid fa-floppy-disk me-2"></i>{{ t('save') }}
+            </button>
+            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">{{ t('cancel') }}</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('fDate').value = today;
+
+const receiptInput = document.getElementById('receiptInput');
+const cameraBtn    = document.getElementById('cameraBtn');
+const processBtn   = document.getElementById('processBtn');
+const preview      = document.getElementById('preview');
+const previewWrap  = document.getElementById('previewWrap');
+const placeholder  = document.getElementById('placeholderIcon');
+
+cameraBtn.addEventListener('click', () => receiptInput.click());
+
+receiptInput.addEventListener('change', () => {
+  const file = receiptInput.files[0];
+  if (!file) return;
+
+  // Show preview
+  const reader = new FileReader();
+  reader.onload = e => {
+    preview.src = e.target.result;
+    previewWrap.classList.remove('d-none');
+    placeholder.classList.add('d-none');
+    processBtn.classList.remove('d-none');
+    cameraBtn.textContent = '{{ t('scan_retake') }}';
+    cameraBtn.innerHTML = '<i class="fa-solid fa-rotate-right me-2"></i>{{ t('scan_retake') }}';
+  };
+  reader.readAsDataURL(file);
+});
+
+processBtn.addEventListener('click', async () => {
+  const file = receiptInput.files[0];
+  if (!file) return;
+
+  // Show spinner
+  document.getElementById('processBtnLabel').classList.add('d-none');
+  document.getElementById('processBtnSpinner').classList.remove('d-none');
+  processBtn.disabled = true;
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  try {
+    const resp = await fetch('{{ url_for("scan.process") }}', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await resp.json();
+
+    if (!data.ocr_available) {
+      document.getElementById('ocrUnavailable').classList.remove('d-none');
+      if (data.ocr_error) {
+        const detail = document.getElementById('ocrErrorDetail');
+        detail.textContent = 'Error: ' + data.ocr_error;
+        detail.classList.remove('d-none');
+      }
+    } else {
+      // Pre-fill form fields
+      let filled = false;
+      if (data.store) {
+        document.getElementById('fStore').value = data.store;
+        filled = true;
+      }
+      if (data.amount) {
+        document.getElementById('fAmount').value = data.amount.toFixed(2);
+        filled = true;
+      }
+      if (data.date) {
+        document.getElementById('fDate').value = data.date;
+        filled = true;
+      }
+      if (filled) {
+        document.getElementById('autoFilledBadge').classList.remove('d-none');
+      }
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  // Restore button
+  document.getElementById('processBtnLabel').classList.remove('d-none');
+  document.getElementById('processBtnSpinner').classList.add('d-none');
+  processBtn.disabled = false;
+
+  // Scroll to form
+  document.getElementById('formCard').scrollIntoView({ behavior: 'smooth' });
+});
+</script>
+{% endblock %}

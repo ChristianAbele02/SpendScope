@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ t('scan_qr_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5 col-lg-4 text-center">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-qrcode me-2 text-info"></i>{{ t('scan_qr_title') }}</span>
+      </div>
+      <div class="card-body py-4">
+        <p class="text-muted small mb-3">{{ t('scan_qr_hint') }}</p>
+
+        <!-- QR code rendered by qrcode.js -->
+        <div class="d-flex justify-content-center mb-3">
+          <div id="qrcode" style="background:#fff; padding:12px; border-radius:8px; display:inline-block;"></div>
+        </div>
+
+        <p class="text-muted x-small mb-1">{{ t('scan_qr_url') }}</p>
+        <code class="text-info small">{{ scan_url }}</code>
+
+        <hr class="border-secondary my-3">
+        <p class="text-muted x-small mb-0">
+          <i class="fa-solid fa-circle-info me-1"></i>{{ t('scan_qr_network_hint') }}
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <a href="{{ url_for('main.add_expense') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="fa-solid fa-keyboard me-1"></i>{{ t('scan_manual_entry') }}
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script>
+  QRCode.toCanvas(
+    document.createElement('canvas'),  // dummy check — use toDataURL instead
+    '{{ scan_url }}',
+    { width: 220, margin: 0, color: { dark: '#000', light: '#fff' } },
+    function(err, canvas) {
+      if (!err) document.getElementById('qrcode').appendChild(canvas);
+    }
+  );
+</script>
+{% endblock %}

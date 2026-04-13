@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_statistics') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h5 class="mb-0 fw-bold">
+    <i class="fa-solid fa-chart-bar me-2 text-info"></i>{{ t('stats_title') }}
+  </h5>
+</div>
+
+<!-- Overall KPI Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body text-center">
+        <div class="text-muted x-small mb-1">{{ t('total_spent') }}</div>
+        <div class="fs-5 fw-bold text-white">€{{ "%.0f"|format(overall.total_spend) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body text-center">
+        <div class="text-muted x-small mb-1">{{ t('months_tracked') }}</div>
+        <div class="fs-5 fw-bold text-white">{{ overall.months_tracked }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body text-center">
+        <div class="text-muted x-small mb-1">{{ t('avg_per_month') }}</div>
+        <div class="fs-5 fw-bold text-white">€{{ "%.2f"|format(overall.avg_monthly) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body text-center">
+        <div class="text-muted x-small mb-1">{{ t('avg_per_trip') }}</div>
+        <div class="fs-5 fw-bold text-white">€{{ "%.2f"|format(overall.avg_per_trip) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body text-center">
+        <div class="text-muted x-small mb-1">{{ t('on_budget_pct') }}</div>
+        <div class="fs-5 fw-bold text-success">{{ overall.on_budget_pct }}%</div>
+        <div class="text-muted x-small">{{ t('of_months') }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body text-center">
+        <div class="text-muted x-small mb-1">{{ t('transactions') }}</div>
+        <div class="fs-5 fw-bold text-white">{{ overall.total_count }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Year-over-Year Chart -->
+<div class="card bg-dark border-secondary mb-4">
+  <div class="card-header border-secondary">
+    <span class="fw-semibold"><i class="fa-solid fa-chart-column me-2 text-info"></i>{{ t('yearly_comparison') }}</span>
+  </div>
+  <div class="card-body">
+    <canvas id="yoyChart" height="80"></canvas>
+  </div>
+</div>
+
+<!-- Category Trends Chart -->
+<div class="card bg-dark border-secondary mb-4">
+  <div class="card-header border-secondary">
+    <span class="fw-semibold"><i class="fa-solid fa-chart-area me-2 text-warning"></i>{{ t('categories_over_time') }}</span>
+  </div>
+  <div class="card-body">
+    <canvas id="categoryTrendChart" height="90"></canvas>
+  </div>
+</div>
+
+<!-- Shopping Behavior + Best/Worst Months -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-stopwatch me-2 text-secondary"></i>{{ t('shopping_behavior') }}</span>
+      </div>
+      <div class="card-body">
+        {% if grocery_stats %}
+        <div class="mb-3">
+          <div class="d-flex align-items-center mb-1">
+            <i class="fa-solid fa-basket-shopping me-2" style="color:#81c784"></i>
+            <span class="fw-semibold">{{ t('groceries') }}</span>
+          </div>
+          <div class="row g-2 text-center">
+            <div class="col-4">
+              <div class="text-muted x-small">{{ t('avg_interval') }}</div>
+              <div class="fw-bold text-white">{{ grocery_stats.avg_interval_days }}d</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted x-small">{{ t('avg_per_trip_short') }}</div>
+              <div class="fw-bold text-white">€{{ "%.2f"|format(grocery_stats.avg_spend_per_trip) }}</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted x-small">{{ t('last_short') }}</div>
+              <div class="fw-bold text-white">{{ t('n_days_ago', grocery_stats.days_since_last) }}</div>
+            </div>
+          </div>
+        </div>
+        <hr class="border-secondary">
+        {% endif %}
+        {% if fuel_stats %}
+        <div>
+          <div class="d-flex align-items-center mb-1">
+            <i class="fa-solid fa-gas-pump me-2" style="color:#ffb74d"></i>
+            <span class="fw-semibold">{{ t('fuel') }}</span>
+          </div>
+          <div class="row g-2 text-center">
+            <div class="col-4">
+              <div class="text-muted x-small">{{ t('avg_interval') }}</div>
+              <div class="fw-bold text-white">{{ fuel_stats.avg_interval_days }}d</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted x-small">{{ t('avg_per_trip_short') }}</div>
+              <div class="fw-bold text-white">€{{ "%.2f"|format(fuel_stats.avg_spend_per_trip) }}</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted x-small">{{ t('last_short') }}</div>
+              <div class="fw-bold text-white">{{ t('n_days_ago', fuel_stats.days_since_last) }}</div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% if not grocery_stats and not fuel_stats %}
+        <p class="text-muted text-center py-3">{{ t('not_enough_data') }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-arrow-trend-up me-2 text-danger"></i>{{ t('expensive_months') }}</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-sm mb-0">
+          <tbody>
+            {% for m in top_worst %}
+            <tr>
+              <td class="ps-3 text-muted">{{ m.label }}</td>
+              <td class="text-white">€{{ "%.2f"|format(m.total) }}</td>
+              <td class="text-end pe-3">
+                {% if m.over_budget %}
+                <span class="text-danger x-small">-€{{ "%.0f"|format(m.surplus | abs) }}</span>
+                {% else %}
+                <span class="text-success x-small">+€{{ "%.0f"|format(m.surplus) }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-arrow-trend-down me-2 text-success"></i>{{ t('cheapest_months') }}</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-sm mb-0">
+          <tbody>
+            {% for m in top_best %}
+            <tr>
+              <td class="ps-3 text-muted">{{ m.label }}</td>
+              <td class="text-white">€{{ "%.2f"|format(m.total) }}</td>
+              <td class="text-end pe-3">
+                <span class="text-success x-small">+€{{ "%.0f"|format(m.surplus) }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  fetch('/api/yearly-comparison')
+    .then(r => r.json())
+    .then(data => initYoYChart('yoyChart', data));
+
+  fetch('/api/category-trends')
+    .then(r => r.json())
+    .then(data => initCategoryTrendChart('categoryTrendChart', data));
+</script>
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ t('add_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center g-4">
+  <!-- Manual entry form -->
+  <div class="col-md-6 col-lg-5">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <h5 class="mb-0 fw-bold">
+          <i class="fa-solid fa-plus me-2 text-success"></i>{{ t('add_title') }}
+        </h5>
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label for="date" class="form-label text-muted small">{{ t('date') }}</label>
+            <input type="date" id="date" name="date" value="{{ today }}"
+                   class="form-control bg-dark text-light border-secondary">
+          </div>
+
+          <div class="mb-3">
+            <label for="store" class="form-label text-muted small">{{ t('store_required') }} <span class="text-danger">*</span></label>
+            <input type="text" id="store" name="store" required
+                   list="store-suggestions"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="z.B. Aldi, Lidl, Tanken ...">
+            <datalist id="store-suggestions">
+              <option value="Aldi"><option value="Lidl"><option value="Rewe">
+              <option value="Penny"><option value="Kaufland"><option value="Edeka">
+              <option value="Marktkauf"><option value="Tanken"><option value="Sonstige">
+              <option value="Ausgehen"><option value="Amazon"><option value="Ikea">
+              <option value="Jysk"><option value="Rossmann"><option value="DM">
+              <option value="Müller"><option value="OBI">
+            </datalist>
+          </div>
+
+          <div class="mb-3">
+            <label for="store_detail" class="form-label text-muted small">{{ t('detail_optional') }}</label>
+            <input type="text" id="store_detail" name="store_detail"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="{{ t('detail_ph') }}">
+          </div>
+
+          <div class="mb-3">
+            <label for="amount" class="form-label text-muted small">{{ t('amount_required') }} <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <span class="input-group-text bg-dark text-light border-secondary">€</span>
+              <input type="number" id="amount" name="amount" required step="0.01"
+                     class="form-control bg-dark text-light border-secondary"
+                     placeholder="0.00">
+            </div>
+            <div class="form-text text-muted">{{ t('negative_refund') }}</div>
+          </div>
+
+          <div class="mb-4">
+            <label for="notes" class="form-label text-muted small">{{ t('note_optional') }}</label>
+            <input type="text" id="notes" name="notes"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="{{ t('note_ph') }}">
+          </div>
+
+          <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-success">
+              <i class="fa-solid fa-floppy-disk me-2"></i>{{ t('save') }}
+            </button>
+            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">{{ t('cancel') }}</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR code / scan panel -->
+  <div class="col-md-4 col-lg-3">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-qrcode me-2 text-info"></i>{{ t('scan_qr_title') }}</span>
+      </div>
+      <div class="card-body text-center py-3">
+        <p class="text-muted small mb-3">{{ t('scan_qr_hint_short') }}</p>
+
+        <!-- QR code — generated server-side with correct LAN IP -->
+        <div class="d-flex justify-content-center mb-3">
+          <img src="{{ url_for('scan.qr_image') }}"
+               alt="QR Code"
+               style="background:#fff; padding:10px; border-radius:8px; width:260px; height:260px;">
+        </div>
+
+        <a href="{{ url_for('scan.mobile') }}" class="btn btn-info btn-sm text-dark fw-semibold w-100 mb-2">
+          <i class="fa-solid fa-mobile-screen me-2"></i>{{ t('scan_open_mobile') }}
+        </a>
+        <a href="{{ url_for('scan.qr_page') }}" class="btn btn-outline-secondary btn-sm w-100">
+          <i class="fa-solid fa-expand me-1"></i>{{ t('scan_fullscreen_qr') }}
+        </a>
+
+        <p class="text-muted x-small mt-3 mb-0">
+          <i class="fa-solid fa-circle-info me-1"></i>{{ t('scan_qr_network_hint') }}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}{{ t('samples_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h5 class="mb-0 fw-bold">
+    <i class="fa-solid fa-images me-2 text-warning"></i>{{ t('samples_title') }}
+  </h5>
+  <span class="badge bg-secondary ms-2">{{ samples|length }}</span>
+</div>
+
+<div class="row g-4 mb-4">
+
+  <!-- Upload form -->
+  <div class="col-lg-4">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-upload me-2 text-warning"></i>{{ t('samples_upload') }}</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('scan.upload_sample') }}" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span></label>
+            <input type="text" name="store" required list="store-list"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="z.B. Müller, Aldi ...">
+            <datalist id="store-list">
+              {% for st in all_stores %}<option value="{{ st }}">{% endfor %}
+              <option value="Müller"><option value="Aldi"><option value="Lidl">
+              <option value="Rewe"><option value="Penny"><option value="Rossmann">
+              <option value="DM"><option value="Edeka"><option value="Kaufland">
+            </datalist>
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('samples_image') }} <span class="text-danger">*</span></label>
+            <input type="file" name="image" required accept="image/*"
+                   class="form-control bg-dark text-light border-secondary">
+          </div>
+          <div class="mb-4">
+            <label class="form-label text-muted small">{{ t('note') }} ({{ t('optional') }})</label>
+            <input type="text" name="notes"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="{{ t('note_ph') }}">
+          </div>
+          <button type="submit" class="btn btn-warning w-100 fw-semibold">
+            <i class="fa-solid fa-wand-magic-sparkles me-2"></i>{{ t('samples_upload_btn') }}
+          </button>
+        </form>
+
+        <div class="mt-4 text-muted small">
+          <i class="fa-solid fa-circle-info me-1"></i>
+          {% if lang == 'de' %}
+            Jeder hochgeladene Beleg wird per OCR analysiert. Das System lernt daraus, welche Keywords (z.B. <code>SUMME</code>, <code>GESAMT</code>) für diesen Laden den Gesamtbetrag markieren — und verbessert damit automatisch zukünftige Scans.
+          {% else %}
+            Each uploaded receipt is analysed by OCR. The system learns which keyword (e.g. <code>SUMME</code>, <code>GESAMT</code>) marks the total for that store — automatically improving future scans.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Learned profiles table -->
+  <div class="col-lg-8">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-brain me-2 text-info"></i>{{ t('samples_profiles') }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if profiles %}
+        <div class="table-responsive">
+          <table class="table table-dark table-hover table-sm mb-0">
+            <thead class="border-bottom border-secondary">
+              <tr>
+                <th class="ps-3">{{ t('store') }}</th>
+                <th>{{ t('samples_count') }}</th>
+                <th>{{ t('samples_keyword') }}</th>
+                <th class="text-center">{{ t('samples_next_line') }}</th>
+                <th class="pe-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in profiles %}
+              <tr>
+                <td class="ps-3">
+                  <span class="badge-category" data-category="{{ p.store }}">{{ p.store }}</span>
+                </td>
+                <td class="text-muted">{{ p.sample_count }}</td>
+                <td>
+                  {% for kw in p.total_keywords[:3] %}
+                    <span class="badge bg-secondary me-1" style="font-size:0.7rem">{{ kw }}</span>
+                  {% else %}
+                    <span class="text-muted small">—</span>
+                  {% endfor %}
+                </td>
+                <td class="text-center">
+                  {% if p.amount_next_line %}
+                    <i class="fa-solid fa-check text-success"></i>
+                  {% else %}
+                    <i class="fa-solid fa-minus text-muted"></i>
+                  {% endif %}
+                </td>
+                <td class="pe-3">
+                  <form method="post"
+                        action="{{ url_for('scan.reanalyze_store', store=p.store) }}"
+                        class="d-inline">
+                    <button class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.75rem">
+                      <i class="fa-solid fa-rotate me-1"></i>{{ t('samples_reanalyze') }}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">
+          <i class="fa-solid fa-brain fa-2x mb-2 d-block text-secondary"></i>
+          {{ t('samples_no_profiles') }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sample grid -->
+<h6 class="fw-semibold text-muted mb-3">
+  <i class="fa-solid fa-receipt me-2"></i>{{ t('samples_all') }}
+  <span class="badge bg-secondary ms-1">{{ samples|length }}</span>
+</h6>
+
+{% if not samples %}
+<div class="text-center text-muted py-5">
+  <i class="fa-solid fa-images fa-3x mb-3 d-block text-secondary"></i>
+  {{ t('samples_no_samples') }}
+</div>
+{% else %}
+<div class="row g-3">
+  {% for s in samples %}
+  <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+    <div class="card bg-dark border-secondary h-100">
+
+      <!-- Thumbnail -->
+      <a href="{{ url_for('scan.sample_image', id=s.id) }}" target="_blank" title="Vollbild">
+        <img src="{{ url_for('scan.sample_image', id=s.id) }}"
+             class="card-img-top"
+             style="height:160px; object-fit:cover; border-bottom:1px solid #495057;"
+             alt="{{ s.store }}">
+      </a>
+
+      <div class="card-body p-2">
+        <!-- Store + date -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="badge-category" data-category="{{ s.store }}">{{ s.store }}</span>
+          <span class="text-muted" style="font-size:0.68rem">{{ s.uploaded_at.strftime('%d.%m.%y') }}</span>
+        </div>
+
+        <!-- Extracted data -->
+        <div style="font-size:0.78rem">
+          {% if s.extracted_amount %}
+            <div class="text-white fw-semibold">€{{ "%.2f"|format(s.extracted_amount) }}</div>
+          {% else %}
+            <div class="text-danger small">{{ t('samples_no_amount') }}</div>
+          {% endif %}
+
+          {% if s.total_keyword_found %}
+            <div class="text-muted" style="font-size:0.7rem">
+              <code>{{ s.total_keyword_found }}</code>
+              {% if s.amount_on_next_line %}
+                <i class="fa-solid fa-arrow-down ms-1 text-secondary" title="next line"></i>
+              {% endif %}
+            </div>
+          {% endif %}
+
+          {% if s.extracted_date %}
+            <div class="text-muted" style="font-size:0.7rem">{{ s.extracted_date.strftime('%d.%m.%Y') }}</div>
+          {% endif %}
+        </div>
+
+        {% if s.notes %}
+          <div class="text-muted mt-1" style="font-size:0.68rem">{{ s.notes }}</div>
+        {% endif %}
+
+        <!-- OCR text toggle -->
+        {% if s.ocr_text %}
+        <button class="btn btn-sm btn-outline-secondary w-100 mt-2 py-0"
+                data-bs-toggle="collapse" data-bs-target="#ocr-{{ s.id }}"
+                style="font-size:0.7rem">
+          <i class="fa-solid fa-eye me-1"></i>{{ t('samples_show_ocr') }}
+        </button>
+        <div class="collapse mt-1" id="ocr-{{ s.id }}">
+          <pre class="p-1 rounded mb-0"
+               style="font-size:0.62rem; max-height:130px; overflow-y:auto;
+                      background:#111827; color:#9ca3af; white-space:pre-wrap;">{{ s.ocr_text[:800] }}</pre>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="card-footer p-2 border-secondary">
+        <form method="post" action="{{ url_for('scan.delete_sample', id=s.id) }}"
+              onsubmit="return confirm('{{ t('really_delete') }}')" class="d-grid">
+          <button class="btn btn-sm btn-outline-danger py-0" style="font-size:0.75rem">
+            <i class="fa-solid fa-trash-can me-1"></i>{{ t('samples_delete') }}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

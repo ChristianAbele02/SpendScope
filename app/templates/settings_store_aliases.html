@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ t('alias_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h5 class="mb-0 fw-bold">
+    <i class="fa-solid fa-sliders me-2 text-warning"></i>{{ t('alias_title') }}
+  </h5>
+</div>
+
+<!-- Settings tabs -->
+<ul class="nav nav-tabs border-secondary mb-4">
+  <li class="nav-item">
+    <a class="nav-link text-secondary" href="{{ url_for('settings.budget') }}">
+      <i class="fa-solid fa-wallet me-1"></i>{{ t('nav_settings_budget') }}
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link text-secondary" href="{{ url_for('settings.category_budgets') }}">
+      <i class="fa-solid fa-tags me-1"></i>{{ t('nav_settings_limits') }}
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link active" href="{{ url_for('settings.store_aliases') }}">
+      <i class="fa-solid fa-code-merge me-1"></i>{{ t('nav_settings_aliases') }}
+    </a>
+  </li>
+</ul>
+
+<div class="row g-4">
+  <!-- Existing aliases -->
+  <div class="col-md-7">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-list me-2 text-secondary"></i>{{ t('alias_title') }}</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-hover table-sm mb-0">
+          <thead class="border-bottom border-secondary">
+            <tr>
+              <th class="ps-3">{{ t('alias_raw') }}</th>
+              <th><i class="fa-solid fa-arrow-right text-muted me-1" style="font-size:0.7rem"></i>{{ t('alias_canonical') }}</th>
+              <th class="text-end pe-3">{{ t('actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in aliases %}
+            <tr>
+              <td class="ps-3 text-muted font-monospace small">{{ a.alias }}</td>
+              <td class="fw-semibold text-white">{{ a.canonical }}</td>
+              <td class="text-end pe-3">
+                <form method="post" action="{{ url_for('settings.store_alias_delete', alias_id=a.id) }}"
+                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3">{{ t('alias_no_aliases') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-muted small mt-2 px-1">
+      <i class="fa-solid fa-circle-info me-1"></i>{{ t('alias_hint') }}
+    </p>
+  </div>
+
+  <!-- Add alias -->
+  <div class="col-md-5">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-plus me-2 text-success"></i>{{ t('alias_add') }}</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('settings.store_alias_add') }}">
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('alias_raw') }} <span class="text-danger">*</span></label>
+            <input type="text" name="alias" required list="stored-stores"
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="{{ t('alias_raw_ph') }}">
+            <datalist id="stored-stores">
+              {% for st in all_stores %}
+                <option value="{{ st }}">
+              {% endfor %}
+            </datalist>
+          </div>
+          <div class="mb-4">
+            <label class="form-label text-muted small">{{ t('alias_canonical') }} <span class="text-danger">*</span></label>
+            <input type="text" name="canonical" required
+                   class="form-control bg-dark text-light border-secondary"
+                   placeholder="{{ t('alias_canonical_ph') }}">
+          </div>
+          <button type="submit" class="btn btn-success w-100">
+            <i class="fa-solid fa-floppy-disk me-2"></i>{{ t('save') }}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

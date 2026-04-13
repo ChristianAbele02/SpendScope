@@ -1,0 +1,15 @@
+Flask>=3.0.0
+Flask-SQLAlchemy>=3.1.0
+pandas>=2.0.0
+python-dateutil>=2.8.0
+
+# QR code generation (server-side, used by /scan/qr)
+qrcode[pil]>=7.4.2
+Pillow>=10.0.0
+
+# OCR – optional, enables automatic receipt text extraction.
+# Also requires the Tesseract binary:
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+#   Linux:   sudo apt install tesseract-ocr tesseract-ocr-deu
+#   macOS:   brew install tesseract tesseract-lang
+pytesseract>=0.3.10

@@ -1,0 +1,108 @@
+/* ============================================================
+   SpendScope – Custom Styles
+   ============================================================ */
+
+body {
+  background-color: #111318;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+/* Navbar */
+.navbar-brand {
+  font-size: 1.1rem;
+  letter-spacing: 0.03em;
+}
+
+/* Cards */
+.card {
+  border-radius: 10px;
+}
+
+.card-header {
+  background: transparent;
+  font-size: 0.85rem;
+}
+
+/* KPI card values */
+.x-small {
+  font-size: 0.72rem;
+}
+
+/* Category badges */
+.badge-category {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+}
+
+[data-category="Lebensmittel"] { background: rgba(76, 175, 80, 0.18); color: #81c784; }
+[data-category="Tanken"]       { background: rgba(255, 152, 0, 0.18);  color: #ffb74d; }
+[data-category="Drogerie"]     { background: rgba(233, 30, 99, 0.18);  color: #f06292; }
+[data-category="Einrichtung"]  { background: rgba(156, 39, 176, 0.18); color: #ce93d8; }
+[data-category="Ausgehen"]     { background: rgba(244, 67, 54, 0.18);  color: #ef9a9a; }
+[data-category="Online"]       { background: rgba(33, 150, 243, 0.18); color: #64b5f6; }
+[data-category="Baumarkt"]     { background: rgba(121, 85, 72, 0.18);  color: #bcaaa4; }
+[data-category="Auto"]         { background: rgba(96, 125, 139, 0.18); color: #90a4ae; }
+[data-category="Sonstiges"]    { background: rgba(158, 158, 158, 0.18); color: #bdbdbd; }
+
+/* Tables */
+.table-dark {
+  --bs-table-bg: transparent;
+}
+
+.table-dark td, .table-dark th {
+  vertical-align: middle;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.table-hover > tbody > tr:hover > * {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Forms */
+.form-control:focus,
+.form-select:focus {
+  border-color: #495057;
+  box-shadow: 0 0 0 0.2rem rgba(255,255,255,0.05);
+}
+
+.form-control::placeholder {
+  color: #555;
+}
+
+/* Progress bar */
+.progress {
+  background-color: rgba(255,255,255,0.08);
+  border-radius: 999px;
+}
+
+/* Charts – ensure dark background blends */
+canvas {
+  max-width: 100%;
+}
+
+/* Pagination */
+.page-link {
+  color: #aaa;
+}
+.page-item.active .page-link {
+  background-color: #2c5f2e;
+  border-color: #2c5f2e;
+  color: #fff;
+}
+
+/* Alert tweaks */
+.alert {
+  font-size: 0.85rem;
+  border-radius: 8px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1d23; }
+::-webkit-scrollbar-thumb { background: #3a3f4b; border-radius: 3px; }

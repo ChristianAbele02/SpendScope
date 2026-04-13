@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ t('import_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <h5 class="mb-0 fw-bold">
+          <i class="fa-solid fa-file-import me-2 text-info"></i>{{ t('import_title') }}
+        </h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          {{ t('import_desc') | safe }}
+          <strong class="text-warning">{{ t('import_warning') }}</strong>
+        </p>
+
+        {% if result %}
+          {% if result.success %}
+            <div class="alert alert-success">
+              <i class="fa-solid fa-circle-check me-2"></i>
+              <strong>{{ t('import_success') }}</strong><br>
+              {{ t('imported') }}: <strong>{{ result.imported }}</strong> &nbsp;|&nbsp;
+              {{ t('skipped') }}: <strong>{{ result.skipped }}</strong>
+            </div>
+            <a href="{{ url_for('main.dashboard') }}" class="btn btn-success w-100">
+              <i class="fa-solid fa-gauge-high me-1"></i>{{ t('to_dashboard') }}
+            </a>
+          {% else %}
+            <div class="alert alert-danger">
+              <i class="fa-solid fa-circle-xmark me-2"></i>
+              <strong>{{ t('error') }}:</strong> {{ result.error }}
+            </div>
+          {% endif %}
+        {% else %}
+          <form method="post">
+            <div class="d-grid">
+              <button type="submit" class="btn btn-info text-dark fw-semibold">
+                <i class="fa-solid fa-file-import me-2"></i>{{ t('import_now') }}
+              </button>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card bg-dark border-secondary mt-3">
+      <div class="card-body">
+        <h6 class="fw-semibold text-muted mb-2">{{ t('csv_format') }}</h6>
+        <p class="text-muted small mb-1">{{ t('expected_format') }}</p>
+        <code class="text-secondary small">Datum, Laden, Ausgaben, Überschuss, [Detail]</code>
+        <ul class="text-muted small mt-2 mb-0">
+          <li>{{ t('date_format_hint') | safe }}</li>
+          <li>{{ t('store_name_hint') }}</li>
+          <li>{{ t('amount_hint') }}</li>
+          <li>{{ t('detail_hint') }}</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

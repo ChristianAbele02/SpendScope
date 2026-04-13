@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ t('cat_limit_title') }} – SpendScope{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h5 class="mb-0 fw-bold">
+    <i class="fa-solid fa-sliders me-2 text-warning"></i>{{ t('cat_limit_title') }}
+  </h5>
+</div>
+
+<!-- Settings tabs -->
+<ul class="nav nav-tabs border-secondary mb-4">
+  <li class="nav-item">
+    <a class="nav-link text-secondary" href="{{ url_for('settings.budget') }}">
+      <i class="fa-solid fa-wallet me-1"></i>{{ t('nav_settings_budget') }}
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link active" href="{{ url_for('settings.category_budgets') }}">
+      <i class="fa-solid fa-tags me-1"></i>{{ t('nav_settings_limits') }}
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link text-secondary" href="{{ url_for('settings.store_aliases') }}">
+      <i class="fa-solid fa-code-merge me-1"></i>{{ t('nav_settings_aliases') }}
+    </a>
+  </li>
+</ul>
+
+<div class="row g-4">
+  <!-- Current limits -->
+  <div class="col-md-7">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-list me-2 text-secondary"></i>{{ t('cat_limit_title') }}</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-hover table-sm mb-0">
+          <thead class="border-bottom border-secondary">
+            <tr>
+              <th class="ps-3">{{ t('category') }}</th>
+              <th>{{ t('cat_limit_col') }}</th>
+              <th class="text-end pe-3">{{ t('actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lim in limits %}
+            <tr>
+              <td class="ps-3">
+                <span class="badge-category" data-category="{{ lim.category }}">{{ lim.category }}</span>
+              </td>
+              <td class="fw-bold text-warning">€{{ "%.0f"|format(lim.monthly_limit) }}</td>
+              <td class="text-end pe-3">
+                <form method="post" action="{{ url_for('settings.category_budget_delete', limit_id=lim.id) }}"
+                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3">{{ t('cat_limit_no_limits') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-muted small mt-2 px-1">
+      <i class="fa-solid fa-circle-info me-1"></i>{{ t('cat_limit_hint') }}
+    </p>
+  </div>
+
+  <!-- Add / update limit -->
+  <div class="col-md-5">
+    <div class="card bg-dark border-secondary">
+      <div class="card-header border-secondary">
+        <span class="fw-semibold"><i class="fa-solid fa-plus me-2 text-success"></i>{{ t('cat_limit_add') }}</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('settings.category_budget_set') }}">
+          <div class="mb-3">
+            <label class="form-label text-muted small">{{ t('category') }} <span class="text-danger">*</span></label>
+            <select name="category" required class="form-select bg-dark text-light border-secondary">
+              <option value="">—</option>
+              {% for c in all_categories %}
+                <option value="{{ c }}">{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-4">
+            <label class="form-label text-muted small">{{ t('cat_limit_col') }} (€) <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <span class="input-group-text bg-dark text-light border-secondary">€</span>
+              <input type="number" name="monthly_limit" required step="1" min="1"
+                     class="form-control bg-dark text-light border-secondary"
+                     placeholder="80">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-success w-100">
+            <i class="fa-solid fa-floppy-disk me-2"></i>{{ t('save') }}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
