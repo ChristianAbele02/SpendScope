@@ -1,20 +1,30 @@
-from datetime import date, timedelta
 from calendar import monthrange
-from sqlalchemy import func, extract
+from datetime import date, timedelta
+
+from flask import g, has_request_context
+from sqlalchemy import func
+
 from app import db
-from app.models import Expense, BudgetPeriod
-from app.parser import CATEGORY_COLORS, ALL_CATEGORIES
+from app.models import BudgetPeriod, Expense
+from app.parser import CATEGORY_COLORS
+
+# Lowest and highest day-of-month that exists in every month. The period start
+# day is clamped to this range so date(year, month, start) can never raise.
+_MIN_PERIOD_START_DAY = 1
+_MAX_PERIOD_START_DAY = 28
+_BUDGET_FALLBACK = 300.0
 
 
 # ── Period helpers ────────────────────────────────────────────────────────────
 
 def _period_start_day() -> int:
-    """Return the configured period start day (1–28)."""
+    """Return the configured period start day, clamped to 1–28."""
     try:
         from flask import current_app
-        return int(current_app.config.get("PERIOD_START_DAY", 1))
-    except RuntimeError:
-        return 1
+        raw = int(current_app.config.get("PERIOD_START_DAY", 1))
+    except (RuntimeError, TypeError, ValueError):
+        return _MIN_PERIOD_START_DAY
+    return max(_MIN_PERIOD_START_DAY, min(_MAX_PERIOD_START_DAY, raw))
 
 
 def period_for_date(d: date) -> tuple[int, int]:
@@ -56,28 +66,62 @@ def _year_bounds(year: int) -> tuple[date, date]:
 
 # ── Budget lookup ─────────────────────────────────────────────────────────────
 
+def _budget_periods() -> list[tuple[date, float]]:
+    """All budget rules as (effective_from, monthly_budget), newest first.
+
+    Cached for the duration of a request so repeated budget lookups inside
+    aggregation loops (one per month bucket) issue a single query rather than N.
+    """
+    if has_request_context():
+        cached = getattr(g, "_budget_periods_cache", None)
+        if cached is not None:
+            return cached
+    rows = (
+        BudgetPeriod.query
+        .order_by(BudgetPeriod.effective_from.desc())
+        .all()
+    )
+    periods = [(p.effective_from, p.monthly_budget) for p in rows]
+    if has_request_context():
+        g._budget_periods_cache = periods
+    return periods
+
+
 def budget_for_month(year: int, month: int) -> float:
     """Return the monthly budget in effect for the given period label."""
     p_start, _ = period_bounds(year, month)
-    period = (
-        BudgetPeriod.query
-        .filter(BudgetPeriod.effective_from <= p_start)
-        .order_by(BudgetPeriod.effective_from.desc())
-        .first()
-    )
-    return period.monthly_budget if period else 300.0
+    for effective_from, budget in _budget_periods():
+        if effective_from <= p_start:
+            return budget
+    return _BUDGET_FALLBACK
 
 
 # ── Basic queries ─────────────────────────────────────────────────────────────
 
-def get_available_years() -> list[int]:
-    """Return sorted list of period-years that have expense data."""
+def _dated_expense_rows():
+    """All dated expenses as (date, amount, category) rows, cached per request.
+
+    The period-aggregation helpers below must group in Python because the custom
+    period label is not expressible in SQL. Sharing one fetch turns the six
+    full-table scans a statistics page would otherwise trigger into one.
+    """
+    if has_request_context():
+        cached = getattr(g, "_dated_rows_cache", None)
+        if cached is not None:
+            return cached
     rows = (
-        db.session.query(Expense.date)
+        db.session.query(Expense.date, Expense.amount, Expense.category)
         .filter(Expense.date.isnot(None))
         .all()
     )
-    years = {period_for_date(r.date)[0] for r in rows}
+    if has_request_context():
+        g._dated_rows_cache = rows
+    return rows
+
+
+def get_available_years() -> list[int]:
+    """Return sorted list of period-years that have expense data."""
+    years = {period_for_date(r.date)[0] for r in _dated_expense_rows()}
     return sorted(years)
 
 
@@ -121,11 +165,7 @@ def get_monthly_transaction_count(year: int, month: int) -> int:
 
 def get_monthly_trends(years: list[int] | None = None) -> list[dict]:
     """Monthly spending totals grouped by period, across all (or selected) years."""
-    rows = (
-        db.session.query(Expense.date, Expense.amount)
-        .filter(Expense.date.isnot(None))
-        .all()
-    )
+    rows = _dated_expense_rows()
 
     buckets: dict[tuple[int, int], dict] = {}
     for row in rows:
@@ -453,11 +493,7 @@ def get_yearly_comparison() -> dict:
     Monthly totals per period-year — for a grouped bar chart.
     Returns { years: [2022, 2023, ...], data: {year: [jan_total, ...]} }
     """
-    rows = (
-        db.session.query(Expense.date, Expense.amount)
-        .filter(Expense.date.isnot(None))
-        .all()
-    )
+    rows = _dated_expense_rows()
 
     lookup: dict[int, dict[int, float]] = {}
     for row in rows:
@@ -476,11 +512,7 @@ def get_category_trends() -> list[dict]:
     Category totals per period for a stacked bar / area chart.
     Returns [{label, year, month, <category>: total, ...}, ...]
     """
-    rows = (
-        db.session.query(Expense.date, Expense.category, Expense.amount)
-        .filter(Expense.date.isnot(None))
-        .all()
-    )
+    rows = _dated_expense_rows()
 
     points: dict[tuple[int, int], dict] = {}
     for row in rows:
@@ -502,18 +534,14 @@ def get_top_months(limit: int = 5, best: bool = False) -> list[dict]:
     """
     Top periods by budget surplus (best=True) or overspend (best=False).
     """
-    rows = (
-        db.session.query(Expense.date, Expense.amount)
-        .filter(Expense.date.isnot(None))
-        .all()
-    )
+    rows = _dated_expense_rows()
 
     buckets: dict[tuple[int, int], float] = {}
     for row in rows:
         key = period_for_date(row.date)
         buckets[key] = buckets.get(key, 0.0) + row.amount
 
-    results = []
+    results: list[dict] = []
     for (y, m), total in buckets.items():
         total = round(total, 2)
         budget = budget_for_month(y, m)
@@ -535,11 +563,7 @@ def get_overall_stats() -> dict:
     total_spend = db.session.query(func.sum(Expense.amount)).scalar() or 0.0
     total_count = db.session.query(func.count(Expense.id)).scalar() or 0
 
-    rows = (
-        db.session.query(Expense.date, Expense.amount)
-        .filter(Expense.date.isnot(None))
-        .all()
-    )
+    rows = _dated_expense_rows()
 
     buckets: dict[tuple[int, int], float] = {}
     for row in rows:

@@ -11,9 +11,10 @@
       <div class="card-body py-4">
         <p class="text-muted small mb-3">{{ t('scan_qr_hint') }}</p>
 
-        <!-- QR code rendered by qrcode.js -->
+        <!-- QR code generated server-side (always the correct LAN IP, no CDN dependency) -->
         <div class="d-flex justify-content-center mb-3">
-          <div id="qrcode" style="background:#fff; padding:12px; border-radius:8px; display:inline-block;"></div>
+          <img src="{{ url_for('scan.qr_image') }}" alt="QR Code"
+               style="background:#fff; padding:12px; border-radius:8px; width:244px; height:244px;">
         </div>
 
         <p class="text-muted x-small mb-1">{{ t('scan_qr_url') }}</p>
@@ -35,16 +36,3 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-<script>
-  QRCode.toCanvas(
-    document.createElement('canvas'),  // dummy check — use toDataURL instead
-    '{{ scan_url }}',
-    { width: 220, margin: 0, color: { dark: '#000', light: '#fff' } },
-    function(err, canvas) {
-      if (!err) document.getElementById('qrcode').appendChild(canvas);
-    }
-  );
-</script>
-{% endblock %}

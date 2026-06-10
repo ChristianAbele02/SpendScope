@@ -122,11 +122,10 @@
 {% if recent_logs %}
 <div class="mb-3">
   {% for log in recent_logs %}
-  <div class="d-flex align-items-center gap-2 px-2 py-1 rounded mb-1"
-       style="background:#1a1f2e; border:1px solid #2d3748; font-size:0.8rem">
-    <i class="fa-solid fa-clock-rotate-left text-secondary" style="font-size:0.75rem"></i>
+  <div class="d-flex align-items-center gap-2 px-2 py-1 rounded mb-1 surface-2 small">
+    <i class="fa-solid fa-clock-rotate-left text-secondary x-small" aria-hidden="true"></i>
     <span class="text-muted flex-grow-1">{{ log.description }}</span>
-    <span class="text-muted" style="font-size:0.7rem">{{ log.timestamp.strftime('%d.%m %H:%M') }}</span>
+    <span class="text-muted fs-xxs">{{ log.timestamp.strftime('%d.%m %H:%M') }}</span>
     <form method="post" action="{{ url_for('main.undo_change', log_id=log.id) }}" class="d-inline">
       <input type="hidden" name="_next" value="{{ request.url }}">
       <button class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:0.72rem">
@@ -141,7 +140,7 @@
 <!-- Summary bar -->
 <div class="d-flex justify-content-between text-muted small mb-2 px-1">
   <span>{{ pagination.total }} {{ t('entries_found') }}</span>
-  <span>{{ t('total') }}: <strong class="text-white">€{{ "%.2f"|format(total_amount) }}</strong></span>
+  <span>{{ t('total') }}: <strong class="text-white">{{ total_amount|eur }}</strong></span>
 </div>
 
 <!-- Table -->
@@ -174,7 +173,7 @@
               {%- if thr[1] > 0 and e.amount > thr[0] + 2 * thr[1] -%}
                 <span class="badge bg-warning text-dark ms-1"
                       style="font-size:0.6rem; vertical-align:middle; cursor:default"
-                      title="{{ t('anomaly_hint') }} (Ø €{{ '%.0f'|format(thr[0]) }})">!</span>
+                      title="{{ t('anomaly_hint') }} (Ø {{ thr[0]|eur(0) }})">!</span>
               {%- endif -%}
             {%- endif -%}
           </td>
@@ -182,24 +181,26 @@
             <span class="badge-category" data-category="{{ e.category }}">{{ e.category or '—' }}</span>
           </td>
           <td class="text-end {% if e.amount < 0 %}text-info{% else %}text-white{% endif %}">
-            €{{ "%.2f"|format(e.amount) }}
+            {{ e.amount|eur }}
           </td>
           <td class="text-end pe-3">
             <button class="btn btn-sm btn-outline-info py-0 px-1 me-1 edit-btn"
+                    aria-label="{{ t('edit') }}" title="{{ t('edit') }}"
                     data-id="{{ e.id }}"
                     data-date="{{ e.date.isoformat() if e.date else '' }}"
-                    data-store="{{ e.display_store | e }}"
-                    data-detail=""
+                    data-store="{{ e.store }}"
+                    data-detail="{{ e.store_detail or '' }}"
                     data-amount="{{ e.amount }}"
                     data-category="{{ e.category or '' }}"
-                    data-notes="{{ e.notes or '' | e }}"
+                    data-notes="{{ e.notes or '' }}"
                     data-bs-toggle="modal" data-bs-target="#editModal">
-              <i class="fa-solid fa-pen-to-square"></i>
+              <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
             </button>
             <form method="post" action="{{ url_for('main.delete_expense', expense_id=e.id) }}"
                   onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
-              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
-                <i class="fa-solid fa-trash-can"></i>
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                      aria-label="{{ t('delete') }}" title="{{ t('delete') }}">
+                <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
               </button>
             </form>
           </td>

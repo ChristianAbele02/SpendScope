@@ -1,9 +1,11 @@
 from datetime import date
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+
 from app import db
+from app import stats as s
 from app.models import BudgetPeriod, CategoryBudget, StoreAlias
 from app.parser import ALL_CATEGORIES
-from app import stats as s
 
 settings = Blueprint("settings", __name__)
 

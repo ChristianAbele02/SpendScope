@@ -1,6 +1,12 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
+
 from app import db
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware UTC timestamp (replaces the deprecated datetime.utcnow)."""
+    return datetime.now(UTC)
 
 
 class Expense(db.Model):
@@ -13,7 +19,7 @@ class Expense(db.Model):
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(50), nullable=True)
     notes = db.Column(db.String(500), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     @property
     def display_store(self):
@@ -44,7 +50,7 @@ class ReceiptSample(db.Model):
     image_filename= db.Column(db.String(255), nullable=False)
     ocr_text      = db.Column(db.Text, nullable=True)
     notes         = db.Column(db.String(500), nullable=True)
-    uploaded_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_at   = db.Column(db.DateTime, default=_utcnow)
 
     # What the parser extracted from this specific sample
     extracted_amount    = db.Column(db.Float,   nullable=True)
@@ -62,7 +68,7 @@ class StoreProfile(db.Model):
     total_keywords_json = db.Column(db.Text, default="[]")   # JSON list, priority order
     amount_next_line    = db.Column(db.Boolean, default=False)
     sample_count        = db.Column(db.Integer, default=0)
-    last_updated        = db.Column(db.DateTime, default=datetime.utcnow)
+    last_updated        = db.Column(db.DateTime, default=_utcnow)
 
     @property
     def total_keywords(self) -> list:
@@ -77,7 +83,7 @@ class ChangeLog(db.Model):
     __tablename__ = "change_log"
 
     id           = db.Column(db.Integer, primary_key=True)
-    timestamp    = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    timestamp    = db.Column(db.DateTime, default=_utcnow, index=True)
     op_type      = db.Column(db.String(20), nullable=False)   # 'edit' | 'bulk'
     description  = db.Column(db.String(300), nullable=True)
     payload_json = db.Column(db.Text, nullable=False)          # JSON, see below

@@ -13,7 +13,6 @@
       <div class="card-body">
         <p class="text-muted small">
           {{ t('import_desc') | safe }}
-          <strong class="text-warning">{{ t('import_warning') }}</strong>
         </p>
 
         {% if result %}
@@ -23,6 +22,9 @@
               <strong>{{ t('import_success') }}</strong><br>
               {{ t('imported') }}: <strong>{{ result.imported }}</strong> &nbsp;|&nbsp;
               {{ t('skipped') }}: <strong>{{ result.skipped }}</strong>
+              {% if result.mode == 'append' %}
+              &nbsp;|&nbsp; {{ t('duplicates') }}: <strong>{{ result.duplicates }}</strong>
+              {% endif %}
             </div>
             <a href="{{ url_for('main.dashboard') }}" class="btn btn-success w-100">
               <i class="fa-solid fa-gauge-high me-1"></i>{{ t('to_dashboard') }}
@@ -34,10 +36,36 @@
             </div>
           {% endif %}
         {% else %}
+          <!-- Safe default: append new rows and de-duplicate -->
           <form method="post">
+            <input type="hidden" name="mode" value="append">
+            <p class="text-muted x-small mb-2">
+              <i class="fa-solid fa-circle-info me-1"></i>{{ t('import_append_hint') }}
+            </p>
             <div class="d-grid">
-              <button type="submit" class="btn btn-info text-dark fw-semibold">
-                <i class="fa-solid fa-file-import me-2"></i>{{ t('import_now') }}
+              <button type="submit" class="btn btn-success fw-semibold">
+                <i class="fa-solid fa-circle-plus me-2"></i>{{ t('import_append_btn') }}
+              </button>
+            </div>
+          </form>
+
+          <hr class="border-secondary my-3">
+
+          <!-- Destructive option, gated behind an explicit confirmation -->
+          <form method="post" onsubmit="return confirm('{{ t('import_replace_confirm') }}')">
+            <input type="hidden" name="mode" value="replace">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" value="yes"
+                     name="confirm_replace" id="confirmReplace"
+                     onchange="document.getElementById('replaceBtn').disabled = !this.checked">
+              <label class="form-check-label small text-warning" for="confirmReplace">
+                <i class="fa-solid fa-triangle-exclamation me-1"></i>{{ t('import_replace_label') }}
+              </label>
+            </div>
+            <div class="d-grid">
+              <button type="submit" id="replaceBtn" disabled
+                      class="btn btn-outline-danger btn-sm">
+                <i class="fa-solid fa-trash-can me-2"></i>{{ t('import_replace_btn') }}
               </button>
             </div>
           </form>

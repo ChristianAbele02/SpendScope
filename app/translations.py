@@ -31,6 +31,9 @@ TRANSLATIONS: dict[str, dict] = {
         "note":         "Notiz",
         "new_expense":  "Neue Ausgabe",
         "search":       "Suche",
+        "edit":         "Bearbeiten",
+        "delete":       "Löschen",
+        "over_budget_short": "über Budget",
 
         # Dashboard KPIs
         "spent":             "Ausgegeben",
@@ -45,6 +48,7 @@ TRANSLATIONS: dict[str, dict] = {
 
         # Dashboard sections
         "monthly_spending":   "Monatliche Ausgaben",
+        "chart_spending":     "Ausgaben",
         "all_years":          "Alle Jahre",
         "categories":         "Kategorien",
         "top_stores":         "Top Läden",
@@ -148,9 +152,15 @@ TRANSLATIONS: dict[str, dict] = {
         "import_success":     "Import erfolgreich!",
         "imported":           "Importiert",
         "skipped":            "Übersprungen",
+        "duplicates":         "Duplikate übersprungen",
         "to_dashboard":       "Zum Dashboard",
         "error":              "Fehler",
         "import_now":         "Jetzt importieren",
+        "import_append_btn":  "Neue Einträge hinzufügen",
+        "import_append_hint": "Empfohlen. Fügt nur neue Zeilen hinzu; vorhandene Einträge (gleiches Datum, Laden und Betrag) werden übersprungen. Manuell oder per Scan erfasste Daten bleiben erhalten.",
+        "import_replace_label": "Stattdessen alles ersetzen (zerstörerisch)",
+        "import_replace_confirm": "Ich verstehe, dass dabei alle bestehenden Einträge gelöscht werden.",
+        "import_replace_btn": "Alles löschen und neu importieren",
         "csv_format":         "CSV-Format",
         "expected_format":    "Erwartet wird folgendes Format:",
         "date_format_hint":   "Datum: <code>DD/MM/YYYY</code>",
@@ -258,6 +268,9 @@ TRANSLATIONS: dict[str, dict] = {
         "note":         "Note",
         "new_expense":  "New Expense",
         "search":       "Search",
+        "edit":         "Edit",
+        "delete":       "Delete",
+        "over_budget_short": "over budget",
 
         # Dashboard KPIs
         "spent":             "Spent",
@@ -272,6 +285,7 @@ TRANSLATIONS: dict[str, dict] = {
 
         # Dashboard sections
         "monthly_spending":   "Monthly Spending",
+        "chart_spending":     "Spending",
         "all_years":          "All years",
         "categories":         "Categories",
         "top_stores":         "Top Stores",
@@ -375,9 +389,15 @@ TRANSLATIONS: dict[str, dict] = {
         "import_success":     "Import successful!",
         "imported":           "Imported",
         "skipped":            "Skipped",
+        "duplicates":         "Duplicates skipped",
         "to_dashboard":       "To Dashboard",
         "error":              "Error",
         "import_now":         "Import now",
+        "import_append_btn":  "Add new entries",
+        "import_append_hint": "Recommended. Adds new rows only; entries already present (same date, store and amount) are skipped. Manually added or scanned data is preserved.",
+        "import_replace_label": "Replace everything instead (destructive)",
+        "import_replace_confirm": "I understand this deletes all existing entries.",
+        "import_replace_btn": "Delete all and reimport",
         "csv_format":         "CSV Format",
         "expected_format":    "Expected format:",
         "date_format_hint":   "Date: <code>DD/MM/YYYY</code>",
@@ -461,6 +481,27 @@ SUPPORTED_LANGS = ("de", "en")
 
 def get_lang() -> str:
     return session.get("lang", "de")
+
+
+def format_eur(value, decimals: int = 2) -> str:
+    """Format a number as euros with locale-appropriate grouping.
+
+    German (de): ``1.234,56 €`` (dot thousands, comma decimal, trailing sign).
+    English (en): ``€1,234.56`` (comma thousands, dot decimal, leading sign).
+    A leading minus is preserved for refunds. Non-numeric input is returned
+    unchanged so the filter never raises inside a template.
+    """
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    sign = "-" if num < 0 else ""
+    grouped = f"{abs(num):,.{decimals}f}"  # 1,234.56 — US grouping baseline
+    if get_lang() == "de":
+        # Swap separators to German convention via a placeholder.
+        grouped = grouped.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+        return f"{sign}{grouped} €"
+    return f"{sign}€{grouped}"
 
 
 def t(key: str, *args) -> str:

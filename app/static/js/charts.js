@@ -12,7 +12,8 @@ const MONTH_LABELS = (window.MONTH_LABELS_SHORT && window.MONTH_LABELS_SHORT.len
   ? window.MONTH_LABELS_SHORT
   : ["", "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
 
-const CATEGORY_COLORS = {
+// Canonical palette lives in app/parser.py and is injected via base.html.
+const CATEGORY_COLORS = window.CATEGORY_COLORS || {
   "Lebensmittel": "#4CAF50",
   "Tanken":        "#FF9800",
   "Drogerie":      "#E91E63",
@@ -23,6 +24,9 @@ const CATEGORY_COLORS = {
   "Auto":          "#607D8B",
   "Sonstiges":     "#9E9E9E",
 };
+
+// Localised chart labels injected via base.html; German fallback for safety.
+const CHART_LABELS = window.CHART_LABELS || { spending: "Ausgaben", budget: "Budget", total: "Gesamt" };
 
 // Year palette — distinct colours for multi-year charts
 const YEAR_COLORS = [
@@ -59,7 +63,7 @@ function initTrendChart(canvasId, data) {
       labels,
       datasets: [
         {
-          label: "Ausgaben",
+          label: CHART_LABELS.spending,
           data: totals,
           borderColor: "#4CAF50",
           backgroundColor: "rgba(76,175,80,0.1)",
@@ -70,7 +74,7 @@ function initTrendChart(canvasId, data) {
           tension: 0.3,
         },
         {
-          label: "Budget",
+          label: CHART_LABELS.budget,
           data: budgets,
           borderColor: "rgba(255,152,0,0.5)",
           borderDash: [5, 4],
@@ -162,7 +166,7 @@ function initStoreChart(canvasId, data) {
     data: {
       labels: sorted.map(d => d.display_store),
       datasets: [{
-        label: "Ausgaben",
+        label: CHART_LABELS.spending,
         data: sorted.map(d => d.total),
         backgroundColor: "rgba(76,175,80,0.55)",
         borderColor: "#4CAF50",
@@ -277,7 +281,7 @@ function initCategoryTrendChart(canvasId, data) {
               : null,
             footer: items => {
               const total = items.reduce((s, i) => s + i.parsed.y, 0);
-              return `Gesamt: €${total.toFixed(2)}`;
+              return `${CHART_LABELS.total}: €${total.toFixed(2)}`;
             },
           },
           filter: item => item.parsed.y > 0,

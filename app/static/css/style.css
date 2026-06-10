@@ -2,11 +2,38 @@
    SpendScope – Custom Styles
    ============================================================ */
 
+:root {
+  --bg-body:           #111318;
+  --surface-1:         #1a1d23;  /* scrollbar track, subtle panels */
+  --surface-2:         #1a1f2e;  /* undo rows / nested cards */
+  --surface-2-border:  #2d3748;
+  --brand:             #4CAF50;
+  --brand-dark:        #2c5f2e;
+  --danger:            #ef5350;
+}
+
 body {
-  background-color: #111318;
+  background-color: var(--bg-body);
   color: #e0e0e0;
   font-size: 0.9rem;
 }
+
+/* Font-size utilities (consolidates scattered inline style="font-size:…") */
+.x-small  { font-size: 0.72rem; }
+.fs-xxs   { font-size: 0.7rem; }
+
+/* Nested dark surface used for the undo history rows */
+.surface-2 {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-2-border);
+}
+
+/* Dashboard forecast card */
+.forecast-card {
+  background: linear-gradient(135deg, #1a2535 0%, #111318 100%);
+  border-left: 3px solid var(--brand) !important;
+}
+.forecast-card.over-budget { border-left-color: var(--danger) !important; }
 
 /* Navbar */
 .navbar-brand {
@@ -22,11 +49,6 @@ body {
 .card-header {
   background: transparent;
   font-size: 0.85rem;
-}
-
-/* KPI card values */
-.x-small {
-  font-size: 0.72rem;
 }
 
 /* Category badges */

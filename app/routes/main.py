@@ -1,10 +1,12 @@
 import json
-from datetime import date, datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from datetime import date
+
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+
 from app import db
-from app.models import Expense, ChangeLog
-from app.parser import get_category, ALL_CATEGORIES
 from app import stats as s
+from app.models import ChangeLog, Expense
+from app.parser import ALL_CATEGORIES, get_category
 
 main = Blueprint("main", __name__)
 
@@ -38,6 +40,11 @@ def dashboard():
     cur_year, cur_month = s.period_for_date(today)
     is_current_month = (year == cur_year and month == cur_month)
 
+    # Day counts for the *budget period* (not the calendar month), so the
+    # dashboard is correct when PERIOD_START_DAY != 1.
+    days_in_period = (p_end - p_start).days + 1
+    days_elapsed = (today - p_start).days + 1 if is_current_month else days_in_period
+
     # Year-over-year: same period last year
     yoy_summary = s.get_monthly_summary(year - 1, month) if len(available_years) > 1 else None
 
@@ -55,6 +62,8 @@ def dashboard():
         prediction=prediction,
         is_current_month=is_current_month,
         yoy_summary=yoy_summary,
+        days_in_period=days_in_period,
+        days_elapsed=days_elapsed,
     )
 
 
@@ -289,7 +298,9 @@ def edit_expense(expense_id):
     # 2. Store name itself didn't change
     # 3. There are OTHER entries for this store that are STILL in the OLD category
     category_changed   = (expense.category != old_category)
-    display_unchanged  = (store == old_display)   # user didn't rename the store
+    # The store field now round-trips the raw store column, so compare the
+    # recomputed display name (store_detail or store) against the old one.
+    display_unchanged  = (expense.display_store == old_display)
     if category_changed and display_unchanged:
         others = (Expense.query
                   .filter(db.or_(Expense.store == old_display,
@@ -298,7 +309,7 @@ def edit_expense(expense_id):
                   .filter(Expense.id != expense_id)
                   .count())
         if others > 0:
-            from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+            from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
             parsed = urlparse(next_url)
             params  = parse_qs(parsed.query, keep_blank_values=True)
             params["bulk_store"]        = [old_display]
@@ -389,7 +400,7 @@ def undo_change(log_id):
     db.session.commit()
 
     if log.op_type == "edit":
-        flash(f"Undone: entry restored.", "success")
+        flash("Undone: entry restored.", "success")
 
     return redirect(next_url)
 
@@ -408,6 +419,7 @@ def export_expenses():
     import csv
     import io
     import json as _json
+
     from flask import Response
 
     fmt = request.args.get("format", "csv")
@@ -487,5 +499,13 @@ def import_page():
     if request.method == "POST":
         from app.parser import import_csv
         from config import Config
-        result = import_csv(Config.CSV_PATH)
+        # "replace" wipes the table and is only honoured with explicit
+        # confirmation; the default appends new rows and de-duplicates so
+        # manually added or scanned entries are preserved.
+        replace = (
+            request.form.get("mode") == "replace"
+            and request.form.get("confirm_replace") == "yes"
+        )
+        result = import_csv(Config.CSV_PATH, clear_existing=replace)
+        result["mode"] = "replace" if replace else "append"
     return render_template("import.html", result=result)

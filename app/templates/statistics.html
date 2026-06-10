@@ -14,7 +14,7 @@
     <div class="card bg-dark border-secondary h-100">
       <div class="card-body text-center">
         <div class="text-muted x-small mb-1">{{ t('total_spent') }}</div>
-        <div class="fs-5 fw-bold text-white">€{{ "%.0f"|format(overall.total_spend) }}</div>
+        <div class="fs-5 fw-bold text-white">{{ overall.total_spend|eur(0) }}</div>
       </div>
     </div>
   </div>
@@ -30,7 +30,7 @@
     <div class="card bg-dark border-secondary h-100">
       <div class="card-body text-center">
         <div class="text-muted x-small mb-1">{{ t('avg_per_month') }}</div>
-        <div class="fs-5 fw-bold text-white">€{{ "%.2f"|format(overall.avg_monthly) }}</div>
+        <div class="fs-5 fw-bold text-white">{{ overall.avg_monthly|eur }}</div>
       </div>
     </div>
   </div>
@@ -38,7 +38,7 @@
     <div class="card bg-dark border-secondary h-100">
       <div class="card-body text-center">
         <div class="text-muted x-small mb-1">{{ t('avg_per_trip') }}</div>
-        <div class="fs-5 fw-bold text-white">€{{ "%.2f"|format(overall.avg_per_trip) }}</div>
+        <div class="fs-5 fw-bold text-white">{{ overall.avg_per_trip|eur }}</div>
       </div>
     </div>
   </div>
@@ -102,7 +102,7 @@
             </div>
             <div class="col-4">
               <div class="text-muted x-small">{{ t('avg_per_trip_short') }}</div>
-              <div class="fw-bold text-white">€{{ "%.2f"|format(grocery_stats.avg_spend_per_trip) }}</div>
+              <div class="fw-bold text-white">{{ grocery_stats.avg_spend_per_trip|eur }}</div>
             </div>
             <div class="col-4">
               <div class="text-muted x-small">{{ t('last_short') }}</div>
@@ -125,7 +125,7 @@
             </div>
             <div class="col-4">
               <div class="text-muted x-small">{{ t('avg_per_trip_short') }}</div>
-              <div class="fw-bold text-white">€{{ "%.2f"|format(fuel_stats.avg_spend_per_trip) }}</div>
+              <div class="fw-bold text-white">{{ fuel_stats.avg_spend_per_trip|eur }}</div>
             </div>
             <div class="col-4">
               <div class="text-muted x-small">{{ t('last_short') }}</div>
@@ -152,12 +152,12 @@
             {% for m in top_worst %}
             <tr>
               <td class="ps-3 text-muted">{{ m.label }}</td>
-              <td class="text-white">€{{ "%.2f"|format(m.total) }}</td>
+              <td class="text-white">{{ m.total|eur }}</td>
               <td class="text-end pe-3">
                 {% if m.over_budget %}
-                <span class="text-danger x-small">-€{{ "%.0f"|format(m.surplus | abs) }}</span>
+                <span class="text-danger x-small">-{{ m.surplus | abs|eur(0) }}</span>
                 {% else %}
-                <span class="text-success x-small">+€{{ "%.0f"|format(m.surplus) }}</span>
+                <span class="text-success x-small">+{{ m.surplus|eur(0) }}</span>
                 {% endif %}
               </td>
             </tr>
@@ -179,9 +179,9 @@
             {% for m in top_best %}
             <tr>
               <td class="ps-3 text-muted">{{ m.label }}</td>
-              <td class="text-white">€{{ "%.2f"|format(m.total) }}</td>
+              <td class="text-white">{{ m.total|eur }}</td>
               <td class="text-end pe-3">
-                <span class="text-success x-small">+€{{ "%.0f"|format(m.surplus) }}</span>
+                <span class="text-success x-small">+{{ m.surplus|eur(0) }}</span>
               </td>
             </tr>
             {% endfor %}

@@ -159,7 +159,7 @@
         <!-- Extracted data -->
         <div style="font-size:0.78rem">
           {% if s.extracted_amount %}
-            <div class="text-white fw-semibold">€{{ "%.2f"|format(s.extracted_amount) }}</div>
+            <div class="text-white fw-semibold">{{ s.extracted_amount|eur }}</div>
           {% else %}
             <div class="text-danger small">{{ t('samples_no_amount') }}</div>
           {% endif %}

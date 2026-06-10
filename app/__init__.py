@@ -1,5 +1,6 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+
 from config import Config
 
 db = SQLAlchemy()
@@ -11,10 +12,10 @@ def create_app(config_class=Config):
 
     db.init_app(app)
 
-    from app.routes.main import main
     from app.routes.api import api
-    from app.routes.settings import settings
+    from app.routes.main import main
     from app.routes.scan import scan
+    from app.routes.settings import settings
 
     app.register_blueprint(main)
     app.register_blueprint(api, url_prefix="/api")
@@ -25,8 +26,10 @@ def create_app(config_class=Config):
     @app.context_processor
     def inject_lang():
         from datetime import date
-        from app.translations import t, get_lang, TRANSLATIONS
+
         from app import stats as s
+        from app.parser import CATEGORY_COLORS
+        from app.translations import TRANSLATIONS, get_lang, t
         lang = get_lang()
         td = TRANSLATIONS.get(lang, TRANSLATIONS["de"])
         return {
@@ -36,7 +39,12 @@ def create_app(config_class=Config):
             "month_names_short": td["months_short"],
             "today":             date.today(),
             "alias_map":         s.get_alias_map(),
+            "category_colors":   CATEGORY_COLORS,
         }
+
+    # Locale-aware currency formatting, available as a Jinja filter ({{ x|eur }}).
+    from app.translations import format_eur
+    app.add_template_filter(format_eur, name="eur")
 
     with app.app_context():
         import os

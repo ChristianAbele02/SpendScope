@@ -1,5 +1,8 @@
-from datetime import datetime
+import re
+from datetime import date, datetime
+
 import pandas as pd
+
 from app import db
 from app.models import Expense
 
@@ -69,22 +72,38 @@ CATEGORY_COLORS = {
 
 ALL_CATEGORIES = list(CATEGORY_COLORS.keys())
 
+DEFAULT_CATEGORY = "Sonstiges"
+
+# Pre-compiled word-boundary matchers, longest key first so the most specific
+# store name wins (e.g. "marktkauf" is tried before shorter keys).
+_CATEGORY_MATCHERS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b" + re.escape(key) + r"\b", re.IGNORECASE), cat)
+    for key, cat in sorted(
+        STORE_CATEGORY_MAP.items(), key=lambda kv: len(kv[0]), reverse=True
+    )
+]
+
 
 def get_category(store: str, detail: str | None = None) -> str:
-    """Determine category from store name and optional detail."""
-    needle = (detail or store or "").lower().strip()
-    for key, cat in STORE_CATEGORY_MAP.items():
-        if key in needle:
-            return cat
-    # Fallback: check original store field too
-    store_lower = (store or "").lower().strip()
-    for key, cat in STORE_CATEGORY_MAP.items():
-        if key in store_lower:
-            return cat
-    return "Sonstiges"
+    """Determine the category for a store name and optional detail.
+
+    Matching is case-insensitive and anchored on word boundaries. Short keys
+    such as ``"dm"`` therefore match only the standalone token, never substrings
+    of unrelated words (``"Edmund"``, ``"Sandmann"``). The detail field is
+    checked before the raw store name; the first key to match, longest first,
+    wins. Returns ``DEFAULT_CATEGORY`` when nothing matches.
+    """
+    for needle in (detail, store):
+        if not needle:
+            continue
+        text = needle.strip()
+        for matcher, cat in _CATEGORY_MATCHERS:
+            if matcher.search(text):
+                return cat
+    return DEFAULT_CATEGORY
 
 
-def _parse_date(value) -> "datetime.date | None":
+def _parse_date(value) -> date | None:
     """Parse DD/MM/YYYY. Returns None for empty or placeholder values."""
     if not value or not isinstance(value, str):
         return None
@@ -97,8 +116,27 @@ def _parse_date(value) -> "datetime.date | None":
         return None
 
 
-def import_csv(csv_path: str, clear_existing: bool = True) -> dict:
-    """Parse the raw CSV and load all valid rows into the database."""
+def _dedupe_key(date_val, store: str, amount: float) -> tuple:
+    """Identity used to detect a row already present in the database."""
+    return (date_val, store, round(amount, 2))
+
+
+def import_csv(csv_path: str, clear_existing: bool = False) -> dict:
+    """Parse the raw CSV and load valid rows into the database.
+
+    Args:
+        csv_path: Path to the CSV file to import.
+        clear_existing: When ``True`` every existing expense is deleted first
+            (destructive full reimport). When ``False`` (the default) rows are
+            appended and any row matching an existing
+            ``(date, store, amount)`` entry is skipped, so manually added or
+            scanned entries are never lost.
+
+    Returns:
+        A result dict with ``success`` and, on success, the counts
+        ``imported``, ``skipped`` (malformed rows) and ``duplicates``
+        (rows already present, append mode only).
+    """
     try:
         df = pd.read_csv(
             csv_path,
@@ -107,15 +145,24 @@ def import_csv(csv_path: str, clear_existing: bool = True) -> dict:
             dtype=str,
             keep_default_na=False,
         )
-    except Exception as exc:
+    except (OSError, ValueError, pd.errors.ParserError) as exc:
         return {"success": False, "error": str(exc)}
 
     if clear_existing:
         Expense.query.delete()
         db.session.commit()
+        existing_keys: set = set()
+    else:
+        existing_keys = {
+            _dedupe_key(e.date, e.store, e.amount)
+            for e in db.session.query(
+                Expense.date, Expense.store, Expense.amount
+            ).all()
+        }
 
     imported = 0
     skipped = 0
+    duplicates = 0
 
     for _, row in df.iterrows():
         store = row.get("store", "").strip()
@@ -136,6 +183,11 @@ def import_csv(csv_path: str, clear_existing: bool = True) -> dict:
         date_val = _parse_date(row.get("date", ""))
         detail_val = detail if detail and detail.lower() != "nan" else None
 
+        key = _dedupe_key(date_val, store, amount)
+        if key in existing_keys:
+            duplicates += 1
+            continue
+
         expense = Expense(
             date=date_val,
             store=store,
@@ -144,7 +196,13 @@ def import_csv(csv_path: str, clear_existing: bool = True) -> dict:
             category=get_category(store, detail_val),
         )
         db.session.add(expense)
+        existing_keys.add(key)
         imported += 1
 
     db.session.commit()
-    return {"success": True, "imported": imported, "skipped": skipped}
+    return {
+        "success": True,
+        "imported": imported,
+        "skipped": skipped,
+        "duplicates": duplicates,
+    }

@@ -49,12 +49,12 @@
               <td class="ps-3">
                 <span class="badge-category" data-category="{{ lim.category }}">{{ lim.category }}</span>
               </td>
-              <td class="fw-bold text-warning">€{{ "%.0f"|format(lim.monthly_limit) }}</td>
+              <td class="fw-bold text-warning">{{ lim.monthly_limit|eur(0) }}</td>
               <td class="text-end pe-3">
                 <form method="post" action="{{ url_for('settings.category_budget_delete', limit_id=lim.id) }}"
                       onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
-                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
-                    <i class="fa-solid fa-trash-can"></i>
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}" title="{{ t('delete') }}">
+                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                   </button>
                 </form>
               </td>

@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spendscope"
+version = "0.0.1"
+description = "Personal expense tracker (Flask/SQLite) with receipt OCR and budget analytics."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Christian Abele" }]
+dependencies = [
+    "Flask>=3.0.0",
+    "Flask-SQLAlchemy>=3.1.0",
+    "pandas>=2.0.0",
+    "python-dateutil>=2.8.0",
+    "qrcode[pil]>=7.4.2",
+    "Pillow>=10.0.0",
+    "pytesseract>=0.3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools]
+packages = ["app", "app.routes"]
+
+# ── Ruff (lint + format) ───────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["venv", "data", "app/static/vendor"]
+
+[tool.ruff.lint]
+# pycodestyle (E/W), pyflakes (F), isort (I), pyupgrade (UP), flake8-bugbear (B)
+select = ["E", "W", "F", "I", "UP", "B"]
+# E501 (line length) is enforced by the formatter, not the linter, to avoid
+# churn on long German UI strings and SQLAlchemy chains.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+
+# ── mypy (type checking) ───────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+files = ["app", "config.py", "run.py"]
+ignore_missing_imports = true   # Flask-SQLAlchemy / pandas stubs are incomplete
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+# The codebase is not fully annotated yet; check what is typed without forcing
+# annotations everywhere. Tighten these over time.
+check_untyped_defs = false
+disallow_untyped_defs = false
+exclude = ["venv", "tests"]
+
+# Flask-SQLAlchemy exposes db.Model as a dynamic attribute mypy cannot resolve
+# without a plugin; the models are validated at runtime instead.
+[[tool.mypy.overrides]]
+module = "app.models"
+disable_error_code = ["name-defined"]
+
+# Pillow's bundled stubs are incomplete (Image vs ImageFile, Image.LANCZOS).
+[[tool.mypy.overrides]]
+module = "app.routes.scan"
+disable_error_code = ["assignment", "attr-defined"]
+
+# ── pytest ─────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

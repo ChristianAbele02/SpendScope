@@ -48,14 +48,14 @@
             {% for p in periods %}
             <tr>
               <td class="ps-3 text-white">{{ p.effective_from.strftime('%d.%m.%Y') }}</td>
-              <td class="fw-bold text-success">€{{ "%.2f"|format(p.monthly_budget) }}</td>
+              <td class="fw-bold text-success">{{ p.monthly_budget|eur }}</td>
               <td class="text-muted small">{{ p.note or '—' }}</td>
               <td class="text-end pe-3">
                 <form method="post" action="{{ url_for('settings.budget_delete', period_id=p.id) }}"
                       onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
-                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}" title="{{ t('delete') }}"
                           {% if periods|length == 1 %}disabled title="{{ t('budget_last_entry') }}"{% endif %}>
-                    <i class="fa-solid fa-trash-can"></i>
+                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                   </button>
                 </form>
               </td>

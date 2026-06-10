@@ -11,9 +11,21 @@ import io
 import os
 import re
 import socket
-from datetime import date, datetime
+import uuid as _uuid
+from datetime import UTC, date, datetime
 
-from flask import Blueprint, jsonify, redirect, render_template, request, url_for, flash, Response
+from flask import (
+    Blueprint,
+    Response,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
+
 from app import db
 from app.models import Expense
 from app.parser import get_category
@@ -51,9 +63,14 @@ def _try_ocr(image_bytes: bytes) -> tuple[str | None, str | None]:
     """
     try:
         import pytesseract
-        from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+        from PIL import Image, ImageEnhance, ImageFilter, ImageOps
     except ImportError as e:
         return None, f"Missing Python package: {e}. Run: pip install pytesseract Pillow"
+
+    # Guard against decompression-bomb images: refuse anything over ~50 MP.
+    # A phone photo is well under this; the request body itself is also capped
+    # by MAX_CONTENT_LENGTH.
+    Image.MAX_IMAGE_PIXELS = 50_000_000
 
     try:
         from config import Config
@@ -61,6 +78,7 @@ def _try_ocr(image_bytes: bytes) -> tuple[str | None, str | None]:
             pytesseract.pytesseract.tesseract_cmd = Config.TESSERACT_CMD
 
         img = Image.open(io.BytesIO(image_bytes))
+        img.load()  # force decode now so an oversized image fails here, before OCR
 
         # Rotate according to EXIF orientation (phones often shoot sideways)
         img = ImageOps.exif_transpose(img)
@@ -188,7 +206,7 @@ def _parse_receipt(text: str) -> dict:
     if not text:
         return result
 
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
         return result
 
@@ -353,10 +371,6 @@ def save():
 
 # ── Receipt sample database ───────────────────────────────────────────────────
 
-import uuid as _uuid
-from datetime import datetime as _dt
-from flask import send_file
-
 
 def _samples_dir() -> str:
     """Return (and create) the directory where sample images are stored."""
@@ -372,6 +386,7 @@ def _build_store_profile(store: str) -> None:
     StoreProfile, learning which total keyword and line layout works best.
     """
     import json
+
     from app.models import ReceiptSample, StoreProfile
 
     samples = (ReceiptSample.query
@@ -421,7 +436,7 @@ def _build_store_profile(store: str) -> None:
     profile.total_keywords_json = json.dumps(ordered_kws)
     profile.amount_next_line    = amount_next_line
     profile.sample_count        = len(samples)
-    profile.last_updated        = _dt.utcnow()
+    profile.last_updated        = datetime.now(UTC)
     db.session.commit()
 
 

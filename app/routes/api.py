@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+
 from app import stats as s
 
 api = Blueprint("api", __name__)
