@@ -1,3 +1,4 @@
+import math
 from calendar import monthrange
 from datetime import date, timedelta
 
@@ -326,15 +327,19 @@ def _prev_month(year: int, month: int, n: int = 1):
     return year, month
 
 
-def _trip_interval_stats(category: str, lookback_days: int = 120) -> dict | None:
+def _trip_interval_stats(
+    category: str, lookback_days: int = 120, today: date | None = None
+) -> dict | None:
     """
     For a given spending category calculate:
       - average days between separate shopping days
       - average spend per shopping day
       - last trip date + days since last trip
     Returns None if not enough data (<2 trips).
+
+    ``today`` is injectable for tests; defaults to the real current date.
     """
-    today = date.today()
+    today = today or date.today()
     cutoff = today - timedelta(days=lookback_days)
 
     rows = (
@@ -370,17 +375,122 @@ def _trip_interval_stats(category: str, lookback_days: int = 120) -> dict | None
 
 
 # ── Prediction ────────────────────────────────────────────────────────────────
+#
+# Bayesian end-of-period forecast.
+#
+# Remaining spend is modelled as a compound sum R = Σ_{i=1..N} X_i:
+#
+#   * Purchase frequency. The daily purchase rate λ gets a Gamma(α₀, β₀) prior
+#     fitted to the last completed periods (empirical Bayes). Prior strength is
+#     capped at _FREQ_PRIOR_STRENGTH_DAYS equivalent observation days so the
+#     current period's behaviour can shift the posterior. With the purchases
+#     observed so far this period the posterior is Gamma(α₀+n, β₀+t), and the
+#     posterior predictive for the number of purchases N in the remaining d
+#     days is Negative Binomial: E[N] = d·α/β, Var[N] = E[N]·(1 + d/β).
+#
+#   * Purchase amount. The mean spend per purchase μ gets a conjugate Normal
+#     prior centred on the historical mean, with strength capped at
+#     _AMOUNT_PRIOR_STRENGTH pseudo-purchases. The per-purchase variance σ² is
+#     pooled over history + current period.
+#
+#   * Compound moments (N independent of the X_i):
+#       E[R]   = E[N]·E[μ]
+#       Var[R] = E[N]·(σ² + Var[μ]) + Var[N]·E[μ]²
+#     summarised with a Normal approximation for the credible interval and the
+#     probability of exceeding the budget.
+#
+# Refunds (negative amounts) are excluded from the purchase model; they still
+# reduce the actual spend-so-far via get_monthly_summary.
 
-def get_prediction(year: int, month: int) -> dict:
+_PREDICTION_HISTORY_PERIODS = 6     # completed periods used to build the priors
+_FREQ_PRIOR_STRENGTH_DAYS = 45.0    # cap on prior weight (in days) for the purchase rate
+_AMOUNT_PRIOR_STRENGTH = 25.0       # cap on prior weight (in purchases) for the mean amount
+_DEFAULT_AMOUNT_CV = 0.6            # assumed coefficient of variation with <2 observed amounts
+_VAGUE_FREQ_SHAPE = 0.5             # Jeffreys-style vague Gamma prior when no history exists
+_VAGUE_FREQ_RATE = 1e-6
+_CI_Z_90 = 1.6449                   # two-sided 90% normal quantile
+
+
+def _norm_cdf(x: float) -> float:
+    """Standard normal CDF via the error function (no scipy dependency)."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _sample_var(xs: list[float]) -> float:
+    """Unbiased sample variance (ddof=1). Caller guarantees len(xs) >= 2."""
+    m = sum(xs) / len(xs)
+    return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
+
+
+def _prediction_inputs(
+    year: int, month: int, today: date
+) -> tuple[list[tuple[int, int, list[float]]], list[float]]:
+    """Collect purchase amounts for the prediction model.
+
+    Args:
+        year: Period-year of the current period.
+        month: Period-month of the current period.
+        today: Reference date; current-period purchases after it are ignored.
+
+    Returns:
+        A tuple ``(history, current_amounts)`` where ``history`` holds one
+        ``(n_purchases, days_in_period, amounts)`` triple per completed prior
+        period that contains at least one positive purchase (periods without
+        any purchase are treated as untracked, not as zero-spend), and
+        ``current_amounts`` lists the positive amounts of the current period
+        up to and including ``today``.
     """
-    Predict end-of-period budget remaining using two approaches:
+    prior_periods: list[tuple[int, int]] = [
+        _prev_month(year, month, n) for n in range(1, _PREDICTION_HISTORY_PERIODS + 1)
+    ]
+    earliest_start = period_bounds(*prior_periods[-1])[0]
 
-    1. Rate-based: avg daily spend from last 3 completed periods × days left.
-    2. Trip-based: expected remaining grocery & fuel trips × avg cost per trip.
+    rows = (
+        db.session.query(Expense.date, Expense.amount)
+        .filter(
+            Expense.date.isnot(None),
+            Expense.date >= earliest_start,
+            Expense.date <= today,
+            Expense.amount > 0,
+        )
+        .all()
+    )
 
-    Only meaningful for the current period.
+    by_period: dict[tuple[int, int], list[float]] = {}
+    for row in rows:
+        by_period.setdefault(period_for_date(row.date), []).append(float(row.amount))
+
+    history: list[tuple[int, int, list[float]]] = []
+    for py, pm in prior_periods:
+        amounts = by_period.get((py, pm))
+        if amounts:
+            pb_start, pb_end = period_bounds(py, pm)
+            history.append((len(amounts), (pb_end - pb_start).days + 1, amounts))
+
+    current_amounts = by_period.get((year, month), [])
+    return history, current_amounts
+
+
+def get_prediction(year: int, month: int, today: date | None = None) -> dict:
+    """Bayesian end-of-period forecast for the current budget period.
+
+    Combines a Gamma-Poisson model of purchase frequency with a conjugate
+    Normal model of spend per purchase (see module comment above) into a
+    posterior predictive distribution of the end-of-period total. Reports the
+    posterior mean, a 90% credible interval, and the probability of exceeding
+    the budget. Trip-interval details for groceries and fuel are included for
+    display purposes only.
+
+    Args:
+        year: Period-year to predict for.
+        month: Period-month to predict for.
+        today: Injectable reference date for tests; defaults to date.today().
+
+    Returns:
+        A dict with ``has_prediction`` False for past/future periods, otherwise
+        the forecast fields consumed by the dashboard and the JSON API.
     """
-    today = date.today()
+    today = today or date.today()
     cur_year, cur_month = period_for_date(today)
 
     if not (year == cur_year and month == cur_month):
@@ -395,31 +505,68 @@ def get_prediction(year: int, month: int) -> dict:
         return {"has_prediction": False}
 
     current = get_monthly_summary(year, month)
+    budget = current["budget"]
 
-    # --- Rate-based projection ---
-    historical_rates = []
-    for n in range(1, 4):
-        py, pm = _prev_month(year, month, n)
-        ps = get_monthly_summary(py, pm)
-        pb_start, pb_end = period_bounds(py, pm)
-        pd_count = (pb_end - pb_start).days + 1
-        if ps["total"] > 0:
-            historical_rates.append(ps["total"] / pd_count)
+    history, cur_amounts = _prediction_inputs(year, month, today)
+    hist_amounts = [a for _, _, amounts in history for a in amounts]
+    n_hist = sum(n for n, _, _ in history)
+    d_hist = sum(d for _, d, _ in history)
+    n_cur = len(cur_amounts)
 
-    if historical_rates:
-        avg_daily_rate = sum(historical_rates) / len(historical_rates)
-    elif days_elapsed > 0:
-        avg_daily_rate = current["total"] / days_elapsed
+    # ── Purchase frequency: Gamma prior → Gamma posterior on λ (purchases/day)
+    if n_hist > 0 and d_hist > 0:
+        kappa_f = min(float(d_hist), _FREQ_PRIOR_STRENGTH_DAYS)
+        alpha0 = (n_hist / d_hist) * kappa_f
+        beta0 = kappa_f
     else:
-        avg_daily_rate = 0.0
+        alpha0, beta0 = _VAGUE_FREQ_SHAPE, _VAGUE_FREQ_RATE
+    alpha = alpha0 + n_cur
+    beta = beta0 + days_elapsed
 
-    rate_additional = round(avg_daily_rate * days_remaining, 2)
-    rate_predicted_total = round(current["total"] + rate_additional, 2)
-    rate_predicted_remaining = round(current["budget"] - rate_predicted_total, 2)
+    exp_n = days_remaining * alpha / beta                 # E[N] (Negative Binomial)
+    var_n = exp_n * (1.0 + days_remaining / beta)         # Var[N]
 
-    # --- Trip-based projection ---
-    grocery_stats = _trip_interval_stats("Lebensmittel")
-    fuel_stats = _trip_interval_stats("Tanken")
+    # ── Spend per purchase: conjugate Normal posterior on μ
+    pooled = hist_amounts + cur_amounts
+    if pooled:
+        m0 = (
+            sum(hist_amounts) / len(hist_amounts)
+            if hist_amounts
+            else sum(cur_amounts) / n_cur
+        )
+        sigma2 = _sample_var(pooled) if len(pooled) >= 2 else (m0 * _DEFAULT_AMOUNT_CV) ** 2
+        kappa_a = min(float(len(hist_amounts)), _AMOUNT_PRIOR_STRENGTH)
+        kappa_n = kappa_a + n_cur
+        m_post = (kappa_a * m0 + sum(cur_amounts)) / kappa_n
+        var_mu = sigma2 / kappa_n
+
+        exp_r = exp_n * m_post
+        var_r = exp_n * (sigma2 + var_mu) + var_n * m_post**2
+    else:
+        # No purchases anywhere: nothing to learn from, forecast flat.
+        m_post = 0.0
+        exp_r = 0.0
+        var_r = 0.0
+
+    sd_r = math.sqrt(var_r)
+    predicted_total = round(current["total"] + exp_r, 2)
+    predicted_remaining = round(budget - predicted_total, 2)
+    ci_low_total = round(current["total"] + max(0.0, exp_r - _CI_Z_90 * sd_r), 2)
+    ci_high_total = round(current["total"] + exp_r + _CI_Z_90 * sd_r, 2)
+
+    headroom = budget - current["total"] - exp_r
+    if sd_r > 0:
+        prob_over = 1.0 - _norm_cdf(headroom / sd_r)
+    else:
+        prob_over = 1.0 if headroom < 0 else 0.0
+    prob_over_pct = round(prob_over * 100, 1)
+
+    # Posterior expected daily spend going forward (for the dashboard card).
+    avg_daily_rate = round((alpha / beta) * m_post, 2)
+
+    # ── Trip-based details (groceries & fuel) — display only ────────────────
+    grocery_stats = _trip_interval_stats("Lebensmittel", today=today)
+    fuel_stats = _trip_interval_stats("Tanken", today=today)
 
     def _expected_remaining_trips(trip_stats: dict | None) -> int | None:
         if not trip_stats:
@@ -437,40 +584,24 @@ def get_prediction(year: int, month: int) -> dict:
     grocery_remaining = _expected_remaining_trips(grocery_stats)
     fuel_remaining = _expected_remaining_trips(fuel_stats)
 
-    trip_additional = 0.0
-    if grocery_stats and grocery_remaining is not None:
-        trip_additional += grocery_remaining * grocery_stats["avg_spend_per_trip"]
-    if fuel_stats and fuel_remaining is not None:
-        trip_additional += fuel_remaining * fuel_stats["avg_spend_per_trip"]
-
-    trip_predicted_total = round(current["total"] + trip_additional, 2)
-    trip_predicted_remaining = round(current["budget"] - trip_predicted_total, 2)
-
-    if grocery_stats or fuel_stats:
-        blended_total = round((rate_predicted_total + trip_predicted_total) / 2, 2)
-    else:
-        blended_total = rate_predicted_total
-    blended_remaining = round(current["budget"] - blended_total, 2)
-
     return {
         "has_prediction": True,
+        "method": "bayesian",
         "days_elapsed": days_elapsed,
         "days_remaining": days_remaining,
         "days_in_month": days_in_period,
-        "avg_daily_rate": round(avg_daily_rate, 2),
-        # Rate-based
-        "rate_additional": rate_additional,
-        "rate_predicted_total": rate_predicted_total,
-        "rate_predicted_remaining": rate_predicted_remaining,
-        # Trip-based
-        "trip_additional": round(trip_additional, 2),
-        "trip_predicted_total": trip_predicted_total,
-        "trip_predicted_remaining": trip_predicted_remaining,
-        # Blended
-        "predicted_total": blended_total,
-        "predicted_remaining": blended_remaining,
-        "will_exceed_budget": blended_total > current["budget"],
-        # Trip details
+        "avg_daily_rate": avg_daily_rate,
+        # Posterior forecast
+        "predicted_total": predicted_total,
+        "predicted_remaining": predicted_remaining,
+        "ci_level": 90,
+        "ci_low_total": ci_low_total,
+        "ci_high_total": ci_high_total,
+        "prob_over_budget": prob_over_pct,
+        "will_exceed_budget": prob_over >= 0.5,
+        "expected_purchases_remaining": round(exp_n, 1),
+        "posterior_mean_per_purchase": round(m_post, 2),
+        # Trip details (display only)
         "grocery": {
             **grocery_stats,
             "expected_remaining_trips": grocery_remaining,

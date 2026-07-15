@@ -73,6 +73,8 @@ TRANSLATIONS: dict[str, dict] = {
         "every_n_days":        "alle {}d",
         "last_n_days_ago":     "zuletzt vor {}d",
         "avg_rate_per_day":    "Ø €{} / Tag",
+        "prob_over":           "Überschreitungsrisiko",
+        "ci_range":            "90%-Intervall",
 
         # Statistics page
         "stats_title":          "Erweiterte Statistiken",
@@ -310,6 +312,8 @@ TRANSLATIONS: dict[str, dict] = {
         "every_n_days":        "every {}d",
         "last_n_days_ago":     "last {}d ago",
         "avg_rate_per_day":    "Avg €{} / day",
+        "prob_over":           "Risk of overspend",
+        "ci_range":            "90% interval",
 
         # Statistics page
         "stats_title":          "Advanced Statistics",

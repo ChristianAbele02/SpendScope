@@ -54,13 +54,17 @@
       <div class="card-body">
         <form method="post" action="{{ url_for('scan.save') }}" id="expenseForm">
           <div class="mb-3">
-            <label class="form-label text-muted small">{{ t('date') }}</label>
+            <label class="form-label text-muted small">{{ t('date') }}
+              <span class="badge d-none ms-1" id="confDate" style="font-size:0.65rem"></span>
+            </label>
             <input type="date" name="date" id="fDate"
                    value="{{ today }}"
                    class="form-control bg-dark text-light border-secondary">
           </div>
           <div class="mb-3">
-            <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span></label>
+            <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span>
+              <span class="badge d-none ms-1" id="confStore" style="font-size:0.65rem"></span>
+            </label>
             <input type="text" name="store" id="fStore" required
                    list="store-suggestions"
                    class="form-control bg-dark text-light border-secondary"
@@ -71,15 +75,19 @@
               <option value="Tanken"><option value="Sonstige"><option value="Ausgehen">
               <option value="Amazon"><option value="Rossmann"><option value="DM">
             </datalist>
+            <div id="storeCandidates" class="mt-1 d-none"></div>
           </div>
           <div class="mb-3">
-            <label class="form-label text-muted small">{{ t('amount') }} (€) <span class="text-danger">*</span></label>
+            <label class="form-label text-muted small">{{ t('amount') }} (€) <span class="text-danger">*</span>
+              <span class="badge d-none ms-1" id="confAmount" style="font-size:0.65rem"></span>
+            </label>
             <div class="input-group">
               <span class="input-group-text bg-dark text-light border-secondary">€</span>
               <input type="number" name="amount" id="fAmount" required step="0.01" min="0.01"
                      class="form-control bg-dark text-light border-secondary"
                      placeholder="0.00">
             </div>
+            <div id="amountCandidates" class="mt-1 d-none"></div>
           </div>
           <div class="mb-4">
             <label class="form-label text-muted small">{{ t('note') }} ({{ t('optional') }})</label>
@@ -132,6 +140,41 @@ receiptInput.addEventListener('change', () => {
   reader.readAsDataURL(file);
 });
 
+// Show a coloured confidence badge next to a field label.
+// >=85% green, >=60% yellow, otherwise red ("check this").
+function showConfidence(badgeId, value, field) {
+  const badge = document.getElementById(badgeId);
+  badge.classList.add('d-none');
+  badge.classList.remove('bg-success', 'bg-warning', 'text-dark', 'bg-danger');
+  if (value === null || value === undefined || !field) return;
+  const pct = Math.round((field.confidence || 0) * 100);
+  badge.textContent = pct + '%';
+  if (pct >= 85)      badge.classList.add('bg-success');
+  else if (pct >= 60) badge.classList.add('bg-warning', 'text-dark');
+  else                badge.classList.add('bg-danger');
+  badge.classList.remove('d-none');
+}
+
+// Render tappable chips for alternative candidates below a field.
+function showCandidates(wrapId, inputId, field, fmt) {
+  const wrap = document.getElementById(wrapId);
+  wrap.innerHTML = '';
+  wrap.classList.add('d-none');
+  if (!field || !field.candidates || field.candidates.length === 0) return;
+  for (const cand of field.candidates) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-outline-info me-1 mb-1';
+    btn.style.fontSize = '0.75rem';
+    btn.textContent = fmt(cand);
+    btn.addEventListener('click', () => {
+      document.getElementById(inputId).value = fmt(cand);
+    });
+    wrap.appendChild(btn);
+  }
+  wrap.classList.remove('d-none');
+}
+
 processBtn.addEventListener('click', async () => {
   const file = receiptInput.files[0];
   if (!file) return;
@@ -153,9 +196,10 @@ processBtn.addEventListener('click', async () => {
 
     if (!data.ocr_available) {
       document.getElementById('ocrUnavailable').classList.remove('d-none');
-      if (data.ocr_error) {
+      const err = data.ocr_error || data.llm_error;
+      if (err) {
         const detail = document.getElementById('ocrErrorDetail');
-        detail.textContent = 'Error: ' + data.ocr_error;
+        detail.textContent = 'Error: ' + err;
         detail.classList.remove('d-none');
       }
     } else {
@@ -173,8 +217,20 @@ processBtn.addEventListener('click', async () => {
         document.getElementById('fDate').value = data.date;
         filled = true;
       }
+
+      // Per-field confidence badges + candidate chips
+      const f = data.fields || {};
+      showConfidence('confStore',  data.store,  f.store);
+      showConfidence('confAmount', data.amount, f.amount);
+      showConfidence('confDate',   data.date,   f.date);
+      showCandidates('storeCandidates',  'fStore',  f.store,  v => v);
+      showCandidates('amountCandidates', 'fAmount', f.amount, v => v.toFixed(2));
+
       if (filled) {
-        document.getElementById('autoFilledBadge').classList.remove('d-none');
+        const badge = document.getElementById('autoFilledBadge');
+        badge.textContent = '{{ t('scan_auto_filled') }}' +
+          (data.backend === 'claude' ? ' · Claude' : ' · OCR');
+        badge.classList.remove('d-none');
       }
     }
   } catch (e) {

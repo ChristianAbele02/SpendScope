@@ -21,6 +21,19 @@ class Config:
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
     )
 
+    # Receipt extraction backend for /scan/process:
+    #   "auto"      – use the Claude vision API when ANTHROPIC_API_KEY is set,
+    #                 otherwise fall back to local Tesseract OCR (default).
+    #   "claude"    – always try the Claude API first (still falls back on error).
+    #   "tesseract" – never call the API; local OCR only.
+    RECEIPT_EXTRACTION_BACKEND: str = os.environ.get("RECEIPT_EXTRACTION_BACKEND", "auto")
+
+    # Model used by the Claude vision backend. claude-haiku-4-5 is a cheaper
+    # alternative if extraction cost matters more than accuracy.
+    RECEIPT_EXTRACTION_MODEL: str = os.environ.get(
+        "RECEIPT_EXTRACTION_MODEL", "claude-opus-4-8"
+    )
+
     # Day of month on which a new budget period starts (1 = calendar months).
     # Example: Set to 7 if your "month" runs from the 7th to the 6th of the next month,
     # so an expense on April 2 is counted in the March period (Mar 7 – Apr 6).

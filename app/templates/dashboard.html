@@ -155,9 +155,9 @@
       <span class="fw-semibold">{{ t('forecast_title') }}</span>
       <span class="ms-2 text-muted x-small">({{ prediction.days_remaining }} {{ t('days_remaining_lbl') }})</span>
       {% if prediction.will_exceed_budget %}
-      <span class="badge bg-danger ms-auto">{{ t('budget_exceeded') }}</span>
+      <span class="badge bg-danger ms-auto">{{ t('budget_exceeded') }} · {{ prediction.prob_over_budget|round|int }}%</span>
       {% else %}
-      <span class="badge bg-success ms-auto">{{ t('on_budget') }}</span>
+      <span class="badge bg-success ms-auto">{{ t('on_budget') }} · {{ (100 - prediction.prob_over_budget)|round|int }}%</span>
       {% endif %}
     </div>
     <div class="row g-3">
@@ -167,11 +167,13 @@
           {{ prediction.predicted_remaining|eur }}
         </div>
         <div class="text-muted x-small">{{ t('budget') }}: {{ summary.budget|eur(0) }}</div>
+        <div class="text-muted x-small">{{ t('prob_over') }}: <span class="{% if prediction.prob_over_budget >= 50 %}text-danger{% elif prediction.prob_over_budget >= 25 %}text-warning{% endif %}">{{ prediction.prob_over_budget|round|int }}%</span></div>
       </div>
       <div class="col-6 col-md-3">
         <div class="text-muted x-small mb-1">{{ t('predicted_total') }}</div>
         <div class="fs-5 fw-bold text-white">{{ prediction.predicted_total|eur }}</div>
         <div class="text-muted x-small">{{ t('avg_rate_per_day', prediction.avg_daily_rate) }}</div>
+        <div class="text-muted x-small">{{ t('ci_range') }}: {{ prediction.ci_low_total|eur(0) }} – {{ prediction.ci_high_total|eur(0) }}</div>
       </div>
       {% if prediction.grocery %}
       <div class="col-6 col-md-3">

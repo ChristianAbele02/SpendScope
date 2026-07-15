@@ -26,6 +26,11 @@ dev = [
     "mypy>=1.10.0",
     "pytest>=8.0.0",
 ]
+# Claude vision receipt extraction (app/extraction.py); optional — the scanner
+# falls back to Tesseract OCR when this is not installed.
+llm = [
+    "anthropic>=0.69.0",
+]
 
 [tool.setuptools]
 packages = ["app", "app.routes"]
@@ -68,7 +73,7 @@ disable_error_code = ["name-defined"]
 
 # Pillow's bundled stubs are incomplete (Image vs ImageFile, Image.LANCZOS).
 [[tool.mypy.overrides]]
-module = "app.routes.scan"
+module = ["app.routes.scan", "app.extraction"]
 disable_error_code = ["assignment", "attr-defined"]
 
 # ── pytest ─────────────────────────────────────────────────────────────────────

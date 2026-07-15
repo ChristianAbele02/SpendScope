@@ -10,13 +10,71 @@ from app.parser import ALL_CATEGORIES, get_category
 
 main = Blueprint("main", __name__)
 
+# date() only accepts years in this range; query params outside it are ignored.
+_MIN_YEAR = 1
+_MAX_YEAR = 9999
+
+
+def _safe_int(value, default: int | None = None) -> int | None:
+    """Parse an int from user input, returning ``default`` instead of raising."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _apply_expense_filters(q, year: str, month: str, category: str, store: str, search: str):
+    """Apply the shared expense list/export filters to an Expense query.
+
+    Non-numeric or out-of-range year/month values are ignored rather than
+    raising, so hand-edited URLs degrade gracefully instead of returning 500.
+    """
+    y = _safe_int(year)
+    m = _safe_int(month)
+    if y is not None and not _MIN_YEAR <= y <= _MAX_YEAR:
+        y = None
+    if m is not None and not 1 <= m <= 12:
+        m = None
+
+    if y and m:
+        p_start, p_end = s.period_bounds(y, m)
+        q = q.filter(Expense.date >= p_start, Expense.date <= p_end)
+    elif y:
+        y_start, y_end = s._year_bounds(y)
+        q = q.filter(Expense.date >= y_start, Expense.date <= y_end)
+    if category:
+        q = q.filter(Expense.category == category)
+    if store:
+        # Match canonical store name against both raw store and store_detail columns,
+        # also resolving any aliases that point to the same canonical name.
+        alias_map = s.get_alias_map()
+        raw_names = {raw for raw, can in alias_map.items() if can == store}
+        raw_names.add(store)
+        q = q.filter(
+            db.or_(Expense.store.in_(raw_names), Expense.store_detail.in_(raw_names))
+        )
+    if search:
+        like = f"%{search}%"
+        q = q.filter(
+            db.or_(
+                Expense.store.ilike(like),
+                Expense.store_detail.ilike(like),
+                Expense.notes.ilike(like),
+            )
+        )
+    return q
+
 
 @main.route("/")
 def dashboard():
     today = date.today()
     default_year, default_month = s.period_for_date(today)
-    year = int(request.args.get("year", default_year))
-    month = int(request.args.get("month", default_month))
+    year = _safe_int(request.args.get("year"), default_year)
+    month = _safe_int(request.args.get("month"), default_month)
+    if not _MIN_YEAR <= year <= _MAX_YEAR:
+        year = default_year
+    if not 1 <= month <= 12:
+        month = default_month
 
     summary = s.get_monthly_summary(year, month)
     categories = s.get_category_breakdown(year, month)
@@ -69,7 +127,7 @@ def dashboard():
 
 @main.route("/expenses")
 def expenses():
-    page = int(request.args.get("page", 1))
+    page = max(1, _safe_int(request.args.get("page"), 1))
     per_page = 50
 
     year = request.args.get("year", "")
@@ -78,34 +136,7 @@ def expenses():
     store = request.args.get("store", "")
     search = request.args.get("search", "").strip()
 
-    q = Expense.query
-
-    if year and month:
-        p_start, p_end = s.period_bounds(int(year), int(month))
-        q = q.filter(Expense.date >= p_start, Expense.date <= p_end)
-    elif year:
-        y_start, y_end = s._year_bounds(int(year))
-        q = q.filter(Expense.date >= y_start, Expense.date <= y_end)
-    if category:
-        q = q.filter(Expense.category == category)
-    if store:
-        # Match canonical store name against both raw store and store_detail columns,
-        # also resolving any aliases that point to the same canonical name.
-        alias_map = s.get_alias_map()
-        raw_names = {raw for raw, can in alias_map.items() if can == store}
-        raw_names.add(store)
-        q = q.filter(
-            db.or_(Expense.store.in_(raw_names), Expense.store_detail.in_(raw_names))
-        )
-    if search:
-        like = f"%{search}%"
-        q = q.filter(
-            db.or_(
-                Expense.store.ilike(like),
-                Expense.store_detail.ilike(like),
-                Expense.notes.ilike(like),
-            )
-        )
+    q = _apply_expense_filters(Expense.query, year, month, category, store, search)
 
     total_amount = q.with_entities(
         db.func.sum(Expense.amount)
@@ -251,6 +282,10 @@ def edit_expense(expense_id):
     category     = request.form.get("category", "").strip()
     notes        = request.form.get("notes", "").strip() or None
     next_url     = request.form.get("_next") or url_for("main.expenses")
+
+    if not store:
+        flash("Store is required.", "danger")
+        return redirect(next_url)
 
     try:
         amount = round(float(amount_str.replace(",", ".")), 2)
@@ -429,31 +464,7 @@ def export_expenses():
     store = request.args.get("store", "")
     search = request.args.get("search", "").strip()
 
-    q = Expense.query
-    if year and month:
-        p_start, p_end = s.period_bounds(int(year), int(month))
-        q = q.filter(Expense.date >= p_start, Expense.date <= p_end)
-    elif year:
-        y_start, y_end = s._year_bounds(int(year))
-        q = q.filter(Expense.date >= y_start, Expense.date <= y_end)
-    if category:
-        q = q.filter(Expense.category == category)
-    if store:
-        alias_map = s.get_alias_map()
-        raw_names = {raw for raw, can in alias_map.items() if can == store}
-        raw_names.add(store)
-        q = q.filter(
-            db.or_(Expense.store.in_(raw_names), Expense.store_detail.in_(raw_names))
-        )
-    if search:
-        like = f"%{search}%"
-        q = q.filter(
-            db.or_(
-                Expense.store.ilike(like),
-                Expense.store_detail.ilike(like),
-                Expense.notes.ilike(like),
-            )
-        )
+    q = _apply_expense_filters(Expense.query, year, month, category, store, search)
     q = q.order_by(Expense.date.desc().nullslast(), Expense.id.desc())
     expenses = q.all()
 

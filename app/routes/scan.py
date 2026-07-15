@@ -202,7 +202,10 @@ def _parse_receipt(text: str) -> dict:
     Extract store, amount, and date from raw OCR text of a German receipt.
     All fields are best-effort; missing ones are returned as None.
     """
-    result: dict = {"store": None, "amount": None, "date": None, "raw": text, "keyword_found": None}
+    result: dict = {
+        "store": None, "amount": None, "date": None, "raw": text,
+        "keyword_found": None, "store_known": False,
+    }
     if not text:
         return result
 
@@ -216,6 +219,7 @@ def _parse_receipt(text: str) -> dict:
         for store in _KNOWN_STORES:
             if store.lower() in line.lower():
                 result["store"] = store  # use canonical capitalisation
+                result["store_known"] = True
                 break
         if result["store"]:
             break
@@ -259,8 +263,59 @@ def _parse_receipt(text: str) -> dict:
             pass
 
     if date_candidates:
-        # Prefer the most recent date within the last 60 days
+        # Prefer the most recent plausible date (within the last 90 days)
         result["date"] = max(date_candidates).isoformat()
+
+    return result
+
+
+# Heuristic confidences for the Tesseract fallback. The Claude backend reports
+# its own; these approximate how reliable each Tesseract guess historically is.
+_CONF_STORE_KNOWN = 0.8      # store matched against _KNOWN_STORES
+_CONF_STORE_GUESS = 0.3      # first substantial text line fallback
+_CONF_AMOUNT_KEYWORD = 0.7   # amount found next to a total keyword
+_CONF_AMOUNT_FALLBACK = 0.4  # largest plausible amount in the document
+_CONF_DATE_FOUND = 0.7
+_MAX_AMOUNT_CANDIDATES = 3
+
+
+def _tesseract_fields(parsed: dict, text: str) -> dict:
+    """Map a ``_parse_receipt`` result onto the unified extraction shape.
+
+    Attaches heuristic per-field confidences and up to
+    ``_MAX_AMOUNT_CANDIDATES`` alternative amount candidates (distinct
+    plausible values found anywhere in the OCR text, largest first) so the
+    mobile form can offer them when the primary guess is wrong.
+    """
+    from app.extraction import empty_result
+
+    result = empty_result("tesseract")
+    result["store"] = parsed.get("store")
+    result["amount"] = parsed.get("amount")
+    result["date"] = parsed.get("date")
+    result["raw"] = parsed.get("raw")
+
+    if result["store"]:
+        result["fields"]["store"]["confidence"] = (
+            _CONF_STORE_KNOWN if parsed.get("store_known") else _CONF_STORE_GUESS
+        )
+    if result["amount"] is not None:
+        result["fields"]["amount"]["confidence"] = (
+            _CONF_AMOUNT_KEYWORD if parsed.get("keyword_found") else _CONF_AMOUNT_FALLBACK
+        )
+    if result["date"]:
+        result["fields"]["date"]["confidence"] = _CONF_DATE_FOUND
+
+    amount_re = re.compile(r"(\d{1,4}[,\.]\d{2})")
+    seen: set[float] = set()
+    for raw_value in amount_re.findall(text or ""):
+        try:
+            v = round(float(raw_value.replace(",", ".")), 2)
+        except ValueError:
+            continue
+        if 0.5 <= v <= 9999 and v != result["amount"]:
+            seen.add(v)
+    result["fields"]["amount"]["candidates"] = sorted(seen, reverse=True)[:_MAX_AMOUNT_CANDIDATES]
 
     return result
 
@@ -303,27 +358,41 @@ def qr_image():
 
 @scan.route("/process", methods=["POST"])
 def process():
+    """Extract expense fields from an uploaded receipt image.
+
+    Tries the Claude vision backend first (when configured), then falls back
+    to local Tesseract OCR. Returns JSON in the unified extraction shape:
+    ``{store, amount, date, raw, backend, fields: {store|amount|date:
+    {confidence, candidates}}, ocr_available, ocr_error, llm_error}``.
     """
-    Accepts an uploaded receipt image, runs OCR, and returns JSON with
-    extracted fields: { store, amount, date, raw, ocr_available }.
-    """
+    from app import extraction
+
     if "image" not in request.files:
         return jsonify({"error": "No image provided"}), 400
 
-    image_file = request.files["image"]
-    image_bytes = image_file.read()
+    image_bytes = request.files["image"].read()
+
+    llm_error = None
+    if extraction.claude_configured():
+        result, llm_error = extraction.extract_with_claude(image_bytes)
+        if result is not None:
+            result["ocr_available"] = True
+            result["ocr_error"] = None
+            result["llm_error"] = None
+            return jsonify(result)
 
     ocr_text, ocr_error = _try_ocr(image_bytes)
     ocr_available = ocr_text is not None
 
     if ocr_available:
-        parsed = _parse_receipt(ocr_text)
+        result = _tesseract_fields(_parse_receipt(ocr_text), ocr_text)
     else:
-        parsed = {"store": None, "amount": None, "date": None, "raw": None}
+        result = extraction.empty_result("tesseract")
 
-    parsed["ocr_available"] = ocr_available
-    parsed["ocr_error"] = ocr_error
-    return jsonify(parsed)
+    result["ocr_available"] = ocr_available
+    result["ocr_error"] = ocr_error
+    result["llm_error"] = llm_error
+    return jsonify(result)
 
 
 @scan.route("/save", methods=["POST"])

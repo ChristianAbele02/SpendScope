@@ -13,3 +13,7 @@ Pillow>=10.0.0
 #   Linux:   sudo apt install tesseract-ocr tesseract-ocr-deu
 #   macOS:   brew install tesseract tesseract-lang
 pytesseract>=0.3.10
+
+# Claude vision receipt extraction – optional, used when ANTHROPIC_API_KEY is
+# set (see config.RECEIPT_EXTRACTION_BACKEND). Falls back to Tesseract if absent.
+anthropic>=0.69.0
