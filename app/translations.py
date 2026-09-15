@@ -1,4 +1,9 @@
-from flask import session
+"""German / English UI strings.
+
+Every key must exist in both dictionaries (enforced by tests/test_translations.py).
+Placeholders are positional ``{}`` markers filled by ``t(key, *args)``.
+"""
+from flask import has_request_context, session
 
 TRANSLATIONS: dict[str, dict] = {
     "de": {
@@ -34,6 +39,7 @@ TRANSLATIONS: dict[str, dict] = {
         "edit":         "Bearbeiten",
         "delete":       "Löschen",
         "over_budget_short": "über Budget",
+        "store_ph":     "z.B. Aldi, Lidl, Tanken ...",
 
         # Dashboard KPIs
         "spent":             "Ausgegeben",
@@ -67,7 +73,7 @@ TRANSLATIONS: dict[str, dict] = {
         "groceries":           "Lebensmittel",
         "fuel":                "Tanken",
         "purchases":           "Einkäufe",
-        "stops":               "Stops",
+        "stops":               "Stopps",
         "spent_so_far":        "Bisher",
         "forecast":            "Prognose",
         "every_n_days":        "alle {}d",
@@ -88,7 +94,7 @@ TRANSLATIONS: dict[str, dict] = {
         "categories_over_time": "Kategorien über Zeit",
         "shopping_behavior":    "Einkaufsverhalten (letzte 12 Monate)",
         "avg_interval":         "Ø Intervall",
-        "avg_per_trip_short":   "Ø pro Trip",
+        "avg_per_trip_short":   "Ø pro Einkauf",
         "last_short":           "Zuletzt",
         "n_days_ago":           "vor {}d",
         "not_enough_data":      "Nicht genug Daten",
@@ -113,18 +119,17 @@ TRANSLATIONS: dict[str, dict] = {
         "negative_refund":  "Negativer Betrag für Erstattungen.",
         "note_optional":    "Notiz (optional)",
         "note_ph":          "Optionale Anmerkung",
-        "scan_hint":        "Kassenbon scannen (QR-Code) — demnächst verfügbar",
 
-        # Settings – budget
+        # Settings: budget
         "nav_settings":         "Einstellungen",
         "settings_budget":      "Budget-Regeln",
         "budget_periods":       "Budget-Zeiträume",
         "effective_from":       "Gültig ab",
         "monthly_budget_col":   "Monatsbudget",
         "budget_last_entry":    "Letzter Eintrag kann nicht gelöscht werden",
-        "budget_rule_hint":     "Die neueste Regel, die vor dem jeweiligen Monat liegt, gilt für diesen Monat.",
+        "budget_rule_hint":     "Für jeden Budget-Zeitraum gilt die neueste Regel, deren Datum am oder vor dem Beginn des Zeitraums liegt.",
         "budget_add_new":       "Neuen Zeitraum hinzufügen",
-        "budget_from_hint":     "Gilt ab dem ersten Tag dieses Monats.",
+        "budget_from_hint":     "Gilt ab dem ersten Budget-Zeitraum, der an oder nach diesem Datum beginnt.",
         "budget_note_ph":       "z.B. Gehaltserhöhung",
         "optional":             "optional",
 
@@ -145,19 +150,17 @@ TRANSLATIONS: dict[str, dict] = {
         "scan_processing":      "Wird verarbeitet...",
         "scan_confirm_data":    "Daten bestätigen",
         "scan_auto_filled":     "Automatisch ausgefüllt",
-        "scan_ocr_unavailable": "OCR nicht verfügbar — bitte manuell ausfüllen. Für automatische Erkennung installiere",
+        "scan_ocr_unavailable": "OCR nicht verfügbar, bitte manuell ausfüllen. Für automatische Erkennung installiere",
 
         # Import page
         "import_title":       "CSV Import",
-        "import_desc":        "Importiert Daten aus <code>expenses_raw.csv</code> im Projektverzeichnis.",
-        "import_warning":     "Alle bestehenden Einträge werden überschrieben.",
+        "import_desc":        "Importiert Daten aus <code>expenses_raw.csv</code> im Projektverzeichnis. Die Datei selbst wird nie verändert.",
         "import_success":     "Import erfolgreich!",
         "imported":           "Importiert",
         "skipped":            "Übersprungen",
         "duplicates":         "Duplikate übersprungen",
         "to_dashboard":       "Zum Dashboard",
         "error":              "Fehler",
-        "import_now":         "Jetzt importieren",
         "import_append_btn":  "Neue Einträge hinzufügen",
         "import_append_hint": "Empfohlen. Fügt nur neue Zeilen hinzu; vorhandene Einträge (gleiches Datum, Laden und Betrag) werden übersprungen. Manuell oder per Scan erfasste Daten bleiben erhalten.",
         "import_replace_label": "Stattdessen alles ersetzen (zerstörerisch)",
@@ -166,7 +169,7 @@ TRANSLATIONS: dict[str, dict] = {
         "csv_format":         "CSV-Format",
         "expected_format":    "Erwartet wird folgendes Format:",
         "date_format_hint":   "Datum: <code>DD/MM/YYYY</code>",
-        "store_name_hint":    'Laden: Storename (z.B. Aldi, Lidl, Sonstige)',
+        "store_name_hint":    "Laden: Storename (z.B. Aldi, Lidl, Sonstige)",
         "amount_hint":        "Ausgaben: Betrag in Euro (Komma oder Punkt)",
         "detail_hint":        'Detail: Optional, z.B. bei "Sonstige"',
 
@@ -175,7 +178,7 @@ TRANSLATIONS: dict[str, dict] = {
         "edit_auto_category":  "Automatisch bestimmen",
         "edit_category_hint":  "Leer lassen = Kategorie wird aus dem Ladennamen abgeleitet.",
         "bulk_apply_title":    "Kategorie auf alle anwenden?",
-        "bulk_apply_desc":     'Soll die Kategorie "{}" fuer alle anderen {}-Eintraege, die noch als "{}" kategorisiert sind ({} weitere), ebenfalls gesetzt werden?',
+        "bulk_apply_desc":     'Soll die Kategorie "{}" für alle anderen {}-Einträge, die noch als "{}" kategorisiert sind ({} weitere), ebenfalls gesetzt werden?',
         "bulk_yes":            "Ja, alle aktualisieren",
         "bulk_no":             "Nein, nur dieser",
         "undo":                "Rückgängig",
@@ -200,12 +203,9 @@ TRANSLATIONS: dict[str, dict] = {
         "cat_limit_title":      "Kategorie-Budgets",
         "cat_limit_add":        "Limit hinzufügen",
         "cat_limit_col":        "Monatslimit",
-        "cat_limit_exceeded":   "Limit überschritten",
         "cat_limit_hint":       "Monatliche Ausgabenobergrenze pro Kategorie.",
         "cat_limit_no_limits":  "Keine Limits definiert.",
-        "cat_limit_delete":     "Löschen",
         "cat_limit_status":     "Kategorie-Budget-Status",
-        "cat_limit_of":         "von",
 
         # Store aliases
         "alias_title":          "Laden-Aliase",
@@ -214,7 +214,6 @@ TRANSLATIONS: dict[str, dict] = {
         "alias_canonical":      "Angezeigter Name",
         "alias_hint":           "Ordne gespeicherte Rohdaten-Namen einem einheitlichen Anzeigenamen zu (z.B. 'REWE Markt' → 'Rewe').",
         "alias_no_aliases":     "Keine Aliase definiert.",
-        "alias_delete":         "Löschen",
         "alias_raw_ph":         "z.B. REWE Markt",
         "alias_canonical_ph":   "z.B. Rewe",
 
@@ -236,8 +235,43 @@ TRANSLATIONS: dict[str, dict] = {
         "samples_no_samples":  "Noch keine Belege hochgeladen.",
         "samples_no_profiles": "Noch keine Profile gelernt. Lade Belege hoch.",
         "samples_no_amount":   "Betrag nicht erkannt",
-        "samples_delete":      "Löschen",
         "samples_show_ocr":    "OCR-Text anzeigen",
+        "samples_info":        "Jeder hochgeladene Beleg wird per OCR analysiert. Das System lernt daraus, welche Keywords (z.B. <code>SUMME</code>, <code>GESAMT</code>) für diesen Laden den Gesamtbetrag markieren, und verbessert damit zukünftige Scans.",
+        "full_size":           "Vollbild",
+
+        # Flash messages
+        "flash_store_required":   "Laden ist ein Pflichtfeld.",
+        "flash_invalid_amount":   "Ungültiger Betrag.",
+        "flash_invalid_date":     "Ungültiges Datum.",
+        "flash_invalid_request":  "Ungültige Anfrage.",
+        "flash_expense_added":    "Ausgabe von {} bei {} gespeichert.",
+        "flash_entry_updated":    "Eintrag aktualisiert.",
+        "flash_bulk_updated":     "{} Einträge von '{}' aktualisiert: {} → {}.",
+        "flash_already_undone":   "Bereits rückgängig gemacht.",
+        "flash_entry_missing":    "Eintrag existiert nicht mehr.",
+        "flash_undo_edit":        "Rückgängig: Eintrag wiederhergestellt.",
+        "flash_undo_bulk":        "Rückgängig: {} Einträge zurück auf '{}'.",
+        "flash_undo_blocked":     "Bitte zuerst die neueren Änderungen an diesem Eintrag rückgängig machen.",
+        "flash_expense_deleted":  "Ausgabe gelöscht.",
+        "flash_sample_required":  "Laden und Bild sind Pflichtfelder.",
+        "flash_sample_bad_type":  "Nur Bilddateien (JPG, PNG, WebP, HEIC, BMP, TIFF) sind erlaubt.",
+        "flash_sample_saved":     "Beleg gespeichert und analysiert, Betrag: {}.",
+        "flash_sample_ocr_failed": "Beleg gespeichert, aber OCR fehlgeschlagen: {}",
+        "flash_sample_deleted":   "Beleg gelöscht.",
+        "flash_profile_rebuilt":  "Profil für '{}' aus {} Belegen neu erstellt.",
+        "flash_budget_exists":    "Für dieses Datum existiert bereits ein Eintrag.",
+        "flash_budget_saved":     "Budget {}/Monat ab {} gespeichert.",
+        "flash_budget_keep_one":  "Mindestens ein Budget-Eintrag muss vorhanden bleiben.",
+        "flash_budget_deleted":   "Budget-Eintrag gelöscht.",
+        "flash_no_category":      "Keine gültige Kategorie angegeben.",
+        "flash_limit_updated":    "Limit für {} auf {} aktualisiert.",
+        "flash_limit_set":        "Limit {}/Monat für {} gesetzt.",
+        "flash_limit_deleted":    "Kategorie-Limit gelöscht.",
+        "flash_alias_required":   "Alias und Zielname müssen ausgefüllt sein.",
+        "flash_alias_identical":  "Alias und Zielname dürfen nicht identisch sein.",
+        "flash_alias_updated":    "Alias '{}' → '{}' aktualisiert.",
+        "flash_alias_saved":      "Alias '{}' → '{}' gespeichert.",
+        "flash_alias_deleted":    "Alias gelöscht.",
     },
 
     "en": {
@@ -273,6 +307,7 @@ TRANSLATIONS: dict[str, dict] = {
         "edit":         "Edit",
         "delete":       "Delete",
         "over_budget_short": "over budget",
+        "store_ph":     "e.g. Aldi, Lidl, Tanken ...",
 
         # Dashboard KPIs
         "spent":             "Spent",
@@ -325,7 +360,7 @@ TRANSLATIONS: dict[str, dict] = {
         "of_months":            "of months",
         "yearly_comparison":    "Year-over-Year (monthly)",
         "categories_over_time": "Categories over Time",
-        "shopping_behavior":    "Shopping Behavior (last 12 months)",
+        "shopping_behavior":    "Shopping Behaviour (last 12 months)",
         "avg_interval":         "Avg interval",
         "avg_per_trip_short":   "Avg per trip",
         "last_short":           "Last",
@@ -346,24 +381,23 @@ TRANSLATIONS: dict[str, dict] = {
         # Add expense form
         "add_title":        "New Expense",
         "store_required":   "Store",
-        "detail_optional":  'Detail (optional, e.g. for "Other")',
-        "detail_ph":        "e.g. Carwash, Parking ...",
+        "detail_optional":  'Detail (optional, e.g. for "Sonstige")',
+        "detail_ph":        "e.g. Rossmann, Parken, Waschstraße ...",
         "amount_required":  "Amount (€)",
         "negative_refund":  "Negative amount for refunds.",
         "note_optional":    "Note (optional)",
         "note_ph":          "Optional remark",
-        "scan_hint":        "Scan receipt (QR code) — coming soon",
 
-        # Settings – budget
+        # Settings: budget
         "nav_settings":         "Settings",
         "settings_budget":      "Budget Rules",
         "budget_periods":       "Budget Periods",
         "effective_from":       "Effective from",
         "monthly_budget_col":   "Monthly budget",
         "budget_last_entry":    "The last entry cannot be deleted",
-        "budget_rule_hint":     "The most recent rule before a given month applies to that month.",
+        "budget_rule_hint":     "Each budget period uses the newest rule dated on or before the start of that period.",
         "budget_add_new":       "Add new period",
-        "budget_from_hint":     "Applies from the first day of this month.",
+        "budget_from_hint":     "Applies from the first budget period starting on or after this date.",
         "budget_note_ph":       "e.g. Pay rise",
         "optional":             "optional",
 
@@ -384,19 +418,17 @@ TRANSLATIONS: dict[str, dict] = {
         "scan_processing":      "Processing...",
         "scan_confirm_data":    "Confirm details",
         "scan_auto_filled":     "Auto-filled",
-        "scan_ocr_unavailable": "OCR unavailable — please fill in manually. For automatic detection, install",
+        "scan_ocr_unavailable": "OCR unavailable, please fill in manually. For automatic detection, install",
 
         # Import page
         "import_title":       "CSV Import",
-        "import_desc":        "Imports data from <code>expenses_raw.csv</code> in the project directory.",
-        "import_warning":     "All existing entries will be overwritten.",
+        "import_desc":        "Imports data from <code>expenses_raw.csv</code> in the project directory. The file itself is never modified.",
         "import_success":     "Import successful!",
         "imported":           "Imported",
         "skipped":            "Skipped",
         "duplicates":         "Duplicates skipped",
         "to_dashboard":       "To Dashboard",
         "error":              "Error",
-        "import_now":         "Import now",
         "import_append_btn":  "Add new entries",
         "import_append_hint": "Recommended. Adds new rows only; entries already present (same date, store and amount) are skipped. Manually added or scanned data is preserved.",
         "import_replace_label": "Replace everything instead (destructive)",
@@ -405,9 +437,9 @@ TRANSLATIONS: dict[str, dict] = {
         "csv_format":         "CSV Format",
         "expected_format":    "Expected format:",
         "date_format_hint":   "Date: <code>DD/MM/YYYY</code>",
-        "store_name_hint":    "Store: Store name (e.g. Aldi, Lidl, Other)",
-        "amount_hint":        "Expenses: Amount in euros (comma or period)",
-        "detail_hint":        'Detail: Optional, e.g. for "Other"',
+        "store_name_hint":    "Store: store name (e.g. Aldi, Lidl, Sonstige)",
+        "amount_hint":        "Expenses: amount in euros (comma or period)",
+        "detail_hint":        'Detail: optional, e.g. for "Sonstige"',
 
         # Edit expense
         "edit_title":          "Edit entry",
@@ -439,12 +471,9 @@ TRANSLATIONS: dict[str, dict] = {
         "cat_limit_title":      "Category Budgets",
         "cat_limit_add":        "Add limit",
         "cat_limit_col":        "Monthly limit",
-        "cat_limit_exceeded":   "Limit exceeded",
         "cat_limit_hint":       "Monthly spending cap per category.",
         "cat_limit_no_limits":  "No limits defined.",
-        "cat_limit_delete":     "Delete",
         "cat_limit_status":     "Category Budget Status",
-        "cat_limit_of":         "of",
 
         # Store aliases
         "alias_title":          "Store Aliases",
@@ -453,7 +482,6 @@ TRANSLATIONS: dict[str, dict] = {
         "alias_canonical":      "Display name",
         "alias_hint":           "Map raw stored names to a single canonical display name (e.g. 'REWE Markt' → 'Rewe').",
         "alias_no_aliases":     "No aliases defined.",
-        "alias_delete":         "Delete",
         "alias_raw_ph":         "e.g. REWE Markt",
         "alias_canonical_ph":   "e.g. Rewe",
 
@@ -475,16 +503,55 @@ TRANSLATIONS: dict[str, dict] = {
         "samples_no_samples":  "No receipts uploaded yet.",
         "samples_no_profiles": "No profiles learned yet. Upload some receipts.",
         "samples_no_amount":   "Amount not detected",
-        "samples_delete":      "Delete",
         "samples_show_ocr":    "Show OCR text",
+        "samples_info":        "Each uploaded receipt is analysed by OCR. The system learns which keyword (e.g. <code>SUMME</code>, <code>GESAMT</code>) marks the total for that store and uses it to improve future scans.",
+        "full_size":           "Full size",
+
+        # Flash messages
+        "flash_store_required":   "Store is required.",
+        "flash_invalid_amount":   "Invalid amount.",
+        "flash_invalid_date":     "Invalid date.",
+        "flash_invalid_request":  "Invalid request.",
+        "flash_expense_added":    "Expense of {} at {} saved.",
+        "flash_entry_updated":    "Entry updated.",
+        "flash_bulk_updated":     "Updated {} '{}' entries: {} → {}.",
+        "flash_already_undone":   "Already undone.",
+        "flash_entry_missing":    "Entry no longer exists.",
+        "flash_undo_edit":        "Undone: entry restored.",
+        "flash_undo_bulk":        "Undone: {} entries reverted to '{}'.",
+        "flash_undo_blocked":     "Undo the newer changes to this entry first.",
+        "flash_expense_deleted":  "Expense deleted.",
+        "flash_sample_required":  "Store and image are required.",
+        "flash_sample_bad_type":  "Only image files (JPG, PNG, WebP, HEIC, BMP, TIFF) are allowed.",
+        "flash_sample_saved":     "Sample saved and analysed, amount: {}.",
+        "flash_sample_ocr_failed": "Sample saved, but OCR failed: {}",
+        "flash_sample_deleted":   "Sample deleted.",
+        "flash_profile_rebuilt":  "Profile for '{}' rebuilt from {} samples.",
+        "flash_budget_exists":    "An entry for this date already exists.",
+        "flash_budget_saved":     "Budget {}/month from {} saved.",
+        "flash_budget_keep_one":  "At least one budget entry must remain.",
+        "flash_budget_deleted":   "Budget entry deleted.",
+        "flash_no_category":      "No valid category given.",
+        "flash_limit_updated":    "Limit for {} updated to {}.",
+        "flash_limit_set":        "Limit {}/month set for {}.",
+        "flash_limit_deleted":    "Category limit deleted.",
+        "flash_alias_required":   "Alias and display name are required.",
+        "flash_alias_identical":  "Alias and display name must differ.",
+        "flash_alias_updated":    "Alias '{}' → '{}' updated.",
+        "flash_alias_saved":      "Alias '{}' → '{}' saved.",
+        "flash_alias_deleted":    "Alias deleted.",
     },
 }
 
 SUPPORTED_LANGS = ("de", "en")
+DEFAULT_LANG = "de"
 
 
 def get_lang() -> str:
-    return session.get("lang", "de")
+    """Current UI language from the session (German outside a request)."""
+    if not has_request_context():
+        return DEFAULT_LANG
+    return session.get("lang", DEFAULT_LANG)
 
 
 def format_eur(value, decimals: int = 2) -> str:
@@ -500,7 +567,7 @@ def format_eur(value, decimals: int = 2) -> str:
     except (TypeError, ValueError):
         return str(value)
     sign = "-" if num < 0 else ""
-    grouped = f"{abs(num):,.{decimals}f}"  # 1,234.56 — US grouping baseline
+    grouped = f"{abs(num):,.{decimals}f}"  # 1,234.56, US grouping baseline
     if get_lang() == "de":
         # Swap separators to German convention via a placeholder.
         grouped = grouped.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
@@ -509,15 +576,22 @@ def format_eur(value, decimals: int = 2) -> str:
 
 
 def t(key: str, *args) -> str:
+    """Translate ``key`` for the current language and fill ``{}`` placeholders.
+
+    Falls back to the German string, then to the key itself. Arguments are
+    inserted in order; braces inside an argument (e.g. a store name) are left
+    untouched.
+
+    Example:
+        ``t("every_n_days", 3)`` → ``"every 3d"``
     """
-    Translate a key for the current session language.
-    Positional args fill {} placeholders in order.
-    Example: t('every_n_days', 3) → "every 3d"
-    """
-    lang = get_lang()
-    td = TRANSLATIONS.get(lang, TRANSLATIONS["de"])
-    text: str = td.get(key) or TRANSLATIONS["de"].get(key, key)
-    if args:
-        for arg in args:
-            text = text.replace("{}", str(arg), 1)
-    return text
+    td = TRANSLATIONS.get(get_lang(), TRANSLATIONS[DEFAULT_LANG])
+    text: str = td.get(key) or TRANSLATIONS[DEFAULT_LANG].get(key, key)
+    if not args:
+        return text
+    parts = text.split("{}")
+    out = [parts[0]]
+    for i, part in enumerate(parts[1:]):
+        out.append(str(args[i]) if i < len(args) else "{}")
+        out.append(part)
+    return "".join(out)

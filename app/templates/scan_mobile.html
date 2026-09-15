@@ -68,7 +68,7 @@
             <input type="text" name="store" id="fStore" required
                    list="store-suggestions"
                    class="form-control bg-dark text-light border-secondary"
-                   placeholder="z.B. Aldi, Lidl ...">
+                   placeholder="{{ t('store_ph') }}">
             <datalist id="store-suggestions">
               <option value="Aldi"><option value="Lidl"><option value="Rewe">
               <option value="Penny"><option value="Kaufland"><option value="Edeka">
@@ -111,8 +111,13 @@
 
 {% block scripts %}
 <script>
-const today = new Date().toISOString().split('T')[0];
-document.getElementById('fDate').value = today;
+// The date field is pre-filled server-side; toISOString() would give the UTC
+// date, which is still "yesterday" shortly after midnight in Germany.
+const I18N = {
+  retake:     {{ t('scan_retake') | tojson }},
+  autoFilled: {{ t('scan_auto_filled') | tojson }},
+  error:      {{ t('error') | tojson }},
+};
 
 const receiptInput = document.getElementById('receiptInput');
 const cameraBtn    = document.getElementById('cameraBtn');
@@ -134,8 +139,8 @@ receiptInput.addEventListener('change', () => {
     previewWrap.classList.remove('d-none');
     placeholder.classList.add('d-none');
     processBtn.classList.remove('d-none');
-    cameraBtn.textContent = '{{ t('scan_retake') }}';
-    cameraBtn.innerHTML = '<i class="fa-solid fa-rotate-right me-2"></i>{{ t('scan_retake') }}';
+    cameraBtn.innerHTML = '<i class="fa-solid fa-rotate-right me-2"></i>';
+    cameraBtn.append(I18N.retake);
   };
   reader.readAsDataURL(file);
 });
@@ -199,7 +204,7 @@ processBtn.addEventListener('click', async () => {
       const err = data.ocr_error || data.llm_error;
       if (err) {
         const detail = document.getElementById('ocrErrorDetail');
-        detail.textContent = 'Error: ' + err;
+        detail.textContent = I18N.error + ': ' + err;
         detail.classList.remove('d-none');
       }
     } else {
@@ -228,7 +233,7 @@ processBtn.addEventListener('click', async () => {
 
       if (filled) {
         const badge = document.getElementById('autoFilledBadge');
-        badge.textContent = '{{ t('scan_auto_filled') }}' +
+        badge.textContent = I18N.autoFilled +
           (data.backend === 'claude' ? ' · Claude' : ' · OCR');
         badge.classList.remove('d-none');
       }

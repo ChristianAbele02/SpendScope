@@ -1,22 +1,30 @@
-"""
-Receipt scanning via QR code.
+"""Receipt scanning and the receipt sample database.
 
-Flow:
-  1. Desktop shows /scan/qr  → QR code encodes http://<host>/scan
-  2. Phone opens /scan        → mobile camera-capture page
-  3. Phone POSTs image to /scan/process → JSON with extracted fields
-  4. Phone submits confirmed form to /scan/save → expense saved
+Scan flow:
+  1. The desktop shows a QR code (/scan/qr, or inline on /add) that encodes
+     http://<LAN IP>:<port>/scan/
+  2. The phone opens /scan/ and takes a photo of the receipt
+  3. The phone POSTs the image to /scan/process and receives the extracted
+     fields as JSON (Claude vision when configured, Tesseract OCR otherwise;
+     see app.extraction for the shared response shape)
+  4. The phone submits the confirmed form to /scan/save
+
+The sample database (/scan/samples) stores reference receipts per store and
+learns which total keyword and line layout each store uses (StoreProfile).
+Learned profiles are applied by the Tesseract parser only.
 """
 import io
+import json
 import os
 import re
 import socket
-import uuid as _uuid
+import uuid
 from datetime import UTC, date, datetime
 
 from flask import (
     Blueprint,
     Response,
+    current_app,
     flash,
     jsonify,
     redirect,
@@ -26,94 +34,64 @@ from flask import (
     url_for,
 )
 
-from app import db
-from app.models import Expense
+from app import db, extraction
+from app.forms import read_expense_form
+from app.models import Expense, ReceiptSample, StoreProfile
 from app.parser import get_category
+from app.translations import format_eur, t
 
 scan = Blueprint("scan", __name__)
 
+# ── Constants ─────────────────────────────────────────────────────────────────
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# Any routable address works: connecting a UDP socket sends no packets, it only
+# makes the OS pick the outgoing interface, whose address is the LAN IP.
+_LAN_PROBE_ADDR = ("8.8.8.8", 80)
+_DEFAULT_PORT = 5000
 
-def _local_ip() -> str:
-    """Best-effort detection of the machine's LAN IP address."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"
+# OCR preprocessing
+_MAX_IMAGE_PIXELS = 50_000_000   # refuse decompression bombs (a phone photo is ~12 MP)
+_OCR_MAX_EDGE = 2000             # Tesseract gains nothing from larger images
+_OCR_CONTRAST = 2.0
+_OCR_BINARY_THRESHOLD = 160      # grey level separating ink from off-white paper
+_TESSERACT_CONFIG = "--psm 4 --oem 3"  # PSM 4: single column of variable-size text
+_TESSERACT_LANGS = "deu+eng"
 
+# Receipt parsing
+_AMOUNT_RE = re.compile(r"(\d{1,4}[,\.]\d{2})")
+_MIN_PLAUSIBLE_AMOUNT = 0.5
+_MAX_PLAUSIBLE_AMOUNT = 9999.0
+_STORE_SEARCH_LINES = 25         # known store names are looked for in the header
+_STORE_FALLBACK_LINES = 8
+_STORE_NAME_MAX_LEN = 60
+_RECEIPT_DATE_MAX_AGE_DAYS = 90
+_MAX_AMOUNT_CANDIDATES = 3
 
-# Known store names to match against OCR text (ordered longest-first to avoid
-# "DM" matching inside "Marktkauf" etc.)
+# Heuristic confidences for the Tesseract backend (Claude reports its own).
+_CONF_STORE_KNOWN = 0.8      # store matched against _KNOWN_STORES
+_CONF_STORE_GUESS = 0.3      # first substantial text line fallback
+_CONF_AMOUNT_KEYWORD = 0.7   # amount found next to a total keyword
+_CONF_AMOUNT_FALLBACK = 0.4  # largest plausible amount in the document
+_CONF_DATE_FOUND = 0.7
+
+# Store profile learning: amounts count as "next line" when most hits are there.
+_NEXT_LINE_MAJORITY = 0.5
+
+# Extensions accepted for sample uploads; anything else could be served back
+# as HTML by send_file and is rejected.
+_ALLOWED_SAMPLE_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".bmp", ".tif", ".tiff",
+}
+
+# Known store names to look for in OCR text, longest first so that e.g.
+# "Marktkauf" is tried before the short "DM".
 _KNOWN_STORES = sorted([
     "Müller", "Mueller", "Aldi", "Lidl", "Rewe", "Penny", "Kaufland",
     "Edeka", "Marktkauf", "Combi", "Netto", "Rossmann", "DM", "Action",
     "Amazon", "Ikea", "Jysk", "OBI", "Toom", "Waschstraße", "Subway",
 ], key=len, reverse=True)
 
-
-def _try_ocr(image_bytes: bytes) -> tuple[str | None, str | None]:
-    """
-    Run Tesseract OCR on the image.
-    Returns (text, error_message). On success error_message is None.
-    """
-    try:
-        import pytesseract
-        from PIL import Image, ImageEnhance, ImageFilter, ImageOps
-    except ImportError as e:
-        return None, f"Missing Python package: {e}. Run: pip install pytesseract Pillow"
-
-    # Guard against decompression-bomb images: refuse anything over ~50 MP.
-    # A phone photo is well under this; the request body itself is also capped
-    # by MAX_CONTENT_LENGTH.
-    Image.MAX_IMAGE_PIXELS = 50_000_000
-
-    try:
-        from config import Config
-        if Config.TESSERACT_CMD and os.path.isfile(Config.TESSERACT_CMD):
-            pytesseract.pytesseract.tesseract_cmd = Config.TESSERACT_CMD
-
-        img = Image.open(io.BytesIO(image_bytes))
-        img.load()  # force decode now so an oversized image fails here, before OCR
-
-        # Rotate according to EXIF orientation (phones often shoot sideways)
-        img = ImageOps.exif_transpose(img)
-
-        # Convert to grayscale
-        img = img.convert("L")
-
-        # Resize so the shorter edge ≤ 2000 px — Tesseract doesn't need huge images
-        # and smaller means faster + fewer OCR artifacts
-        max_dim = 2000
-        w, h = img.size
-        if max(w, h) > max_dim:
-            scale = max_dim / max(w, h)
-            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-
-        # Mild contrast boost then sharpen
-        img = ImageEnhance.Contrast(img).enhance(2.0)
-        img = img.filter(ImageFilter.SHARPEN)
-
-        # Simple binarisation: everything below mid-grey → black, above → white
-        # Helps enormously on receipt paper which is off-white
-        img = img.point(lambda p: 0 if p < 160 else 255)
-
-        # PSM 4 = single column of variable-size text — ideal for narrow receipts
-        cfg = "--psm 4 --oem 3"
-        try:
-            text = pytesseract.image_to_string(img, lang="deu+eng", config=cfg)
-        except pytesseract.pytesseract.TesseractError:
-            text = pytesseract.image_to_string(img, lang="eng", config=cfg)
-
-        return text, None
-    except Exception as e:
-        return None, str(e)
-
-
+# Total keywords evaluated when learning a store profile, most specific first.
 _CANDIDATE_KEYWORDS = [
     "GESAMTBETRAG", "ENDBETRAG", "ZU ZAHLEN", "SUMME EUR",
     "GESAMT EUR", "GESAMT", "SUMME", "TOTAL EUR", "TOTAL",
@@ -126,201 +104,234 @@ _GENERIC_KW_RE = re.compile(
 )
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _local_ip() -> str:
+    """Best-effort detection of this machine's LAN IP address."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(_LAN_PROBE_ADDR)
+            return sock.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+
+
+def _scan_url() -> str:
+    """URL of the mobile scan page as reachable from a phone on the same network."""
+    port = request.environ.get("SERVER_PORT", _DEFAULT_PORT)
+    return f"http://{_local_ip()}:{port}{url_for('scan.mobile')}"
+
+
+def _try_ocr(image_bytes: bytes) -> tuple[str | None, str | None]:
+    """Run Tesseract OCR on a receipt photo.
+
+    The image is EXIF-rotated, converted to greyscale, downscaled, contrast
+    boosted, sharpened and binarised before recognition.
+
+    Returns:
+        ``(text, None)`` on success or ``(None, error_message)`` on failure.
+    """
+    try:
+        import pytesseract
+        from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    except ImportError as e:
+        return None, f"Missing Python package: {e}. Run: pip install pytesseract Pillow"
+
+    Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS
+
+    tesseract_cmd = current_app.config.get("TESSERACT_CMD")
+    if tesseract_cmd and os.path.isfile(tesseract_cmd):
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()  # decode now so oversized or corrupt images fail here
+        img = ImageOps.exif_transpose(img).convert("L")
+
+        w, h = img.size
+        if max(w, h) > _OCR_MAX_EDGE:
+            scale = _OCR_MAX_EDGE / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+        img = ImageEnhance.Contrast(img).enhance(_OCR_CONTRAST).filter(ImageFilter.SHARPEN)
+        img = img.point(lambda p: 0 if p < _OCR_BINARY_THRESHOLD else 255)
+
+        try:
+            text = pytesseract.image_to_string(img, lang=_TESSERACT_LANGS, config=_TESSERACT_CONFIG)
+        except pytesseract.TesseractError:
+            # German language data not installed: retry with English only.
+            text = pytesseract.image_to_string(img, lang="eng", config=_TESSERACT_CONFIG)
+        return text, None
+    # OSError covers unreadable images and a missing Tesseract binary;
+    # RuntimeError covers TesseractError and timeouts.
+    except (OSError, RuntimeError, ValueError, Image.DecompressionBombError) as e:
+        return None, str(e)
+
+
+def _to_amount(raw: str) -> float:
+    """Convert a regex match like ``"12,34"`` to a float."""
+    return round(float(raw.replace(",", ".")), 2)
+
+
+def _plausible_amounts(text: str) -> list[float]:
+    """All distinct plausible amounts in the text, largest first."""
+    values = {_to_amount(raw) for raw in _AMOUNT_RE.findall(text or "")}
+    return sorted(
+        (v for v in values if _MIN_PLAUSIBLE_AMOUNT <= v <= _MAX_PLAUSIBLE_AMOUNT),
+        reverse=True,
+    )
+
+
+def _find_amount_near_keyword(
+    lines: list[str], keyword_re: re.Pattern, prefer_next_line: bool
+) -> tuple[float | None, str | None, bool]:
+    """Find the first keyword line with an amount on it or on the line below.
+
+    Returns:
+        ``(amount, matched_keyword_upper, amount_was_on_next_line)``, or
+        ``(None, None, False)`` if no keyword line has an amount nearby.
+    """
+    for i, line in enumerate(lines):
+        match = keyword_re.search(line)
+        if not match:
+            continue
+        same_line = (line, False)
+        next_line = (lines[i + 1], True) if i + 1 < len(lines) else None
+        for candidate in ([next_line, same_line] if prefer_next_line else [same_line, next_line]):
+            if candidate is None:
+                continue
+            amount_match = _AMOUNT_RE.search(candidate[0])
+            if amount_match:
+                return _to_amount(amount_match.group(1)), match.group(0).upper(), candidate[1]
+    return None, None, False
+
+
 def _parse_amount(
     text: str,
     preferred_keywords: list | None = None,
     prefer_next_line: bool = False,
 ) -> tuple[float | None, str | None, bool]:
+    """Extract the total amount from receipt text.
+
+    Strategy: learned profile keywords first, then generic German total
+    keywords, then the largest plausible amount anywhere in the text.
+
+    Args:
+        text: Raw OCR text.
+        preferred_keywords: Keywords from the store's StoreProfile, in priority order.
+        prefer_next_line: Whether this store prints the amount below the keyword.
+
+    Returns:
+        ``(amount, keyword_used, was_on_next_line)``; the keyword is ``None``
+        when the largest-amount fallback was used.
     """
-    Extract the total amount from receipt text.
-    Returns (amount, keyword_used, was_on_next_line).
-    preferred_keywords (from a StoreProfile) are tried before generic patterns.
-    """
-    amount_re = re.compile(r"(\d{1,4}[,\.]\d{2})")
     lines = text.splitlines()
 
-    def _scan(pattern: re.Pattern, prefer_next: bool):
-        for i, line in enumerate(lines):
-            if not pattern.search(line):
-                continue
-            if not prefer_next:
-                m = amount_re.search(line)
-                if m:
-                    try:
-                        return round(float(m.group(1).replace(",", ".")), 2), False
-                    except ValueError:
-                        pass
-            if i + 1 < len(lines):
-                m = amount_re.search(lines[i + 1])
-                if m:
-                    try:
-                        return round(float(m.group(1).replace(",", ".")), 2), True
-                    except ValueError:
-                        pass
-            # same-line fallback when prefer_next
-            m = amount_re.search(line)
-            if m:
-                try:
-                    return round(float(m.group(1).replace(",", ".")), 2), False
-                except ValueError:
-                    pass
-        return None, False
+    for kw in preferred_keywords or []:
+        amount, _, next_line = _find_amount_near_keyword(
+            lines, re.compile(re.escape(kw), re.IGNORECASE), prefer_next_line
+        )
+        if amount is not None:
+            return amount, kw, next_line
 
-    # 1. Profile keywords first
-    if preferred_keywords:
-        for kw in preferred_keywords:
-            amount, next_line = _scan(re.compile(re.escape(kw), re.IGNORECASE), prefer_next_line)
-            if amount is not None:
-                return amount, kw, next_line
-
-    # 2. Generic keyword scan
-    amount, next_line = _scan(_GENERIC_KW_RE, prefer_next_line)
+    amount, keyword, next_line = _find_amount_near_keyword(lines, _GENERIC_KW_RE, prefer_next_line)
     if amount is not None:
-        # Find which keyword matched for reporting
-        for line in lines:
-            m = _GENERIC_KW_RE.search(line)
-            if m:
-                return amount, m.group(0).upper(), next_line
-        return amount, None, next_line
+        return amount, keyword, next_line
 
-    # 3. Largest plausible amount in document
+    candidates = _plausible_amounts(text)
+    return (candidates[0], None, False) if candidates else (None, None, False)
+
+
+def _parse_date_from_text(text: str, today: date | None = None) -> date | None:
+    """Most recent plausible receipt date (DD.MM.YYYY or DD.MM.YY, any of ./-).
+
+    Only dates within the last ``_RECEIPT_DATE_MAX_AGE_DAYS`` days are accepted,
+    which filters out misread digits and printed expiry or loyalty dates.
+    """
+    today = today or date.today()
+    patterns = (
+        (re.compile(r"\b(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})\b"), 0),
+        (re.compile(r"\b(\d{2})[./\-](\d{2})[./\-](\d{2})\b"), 2000),
+    )
     candidates = []
-    for raw in amount_re.findall(text):
-        try:
-            v = float(raw.replace(",", "."))
-            if 0.5 <= v <= 9999:
-                candidates.append(v)
-        except ValueError:
-            pass
-    if candidates:
-        return round(max(candidates), 2), None, False
-    return None, None, False
+    for pattern, century in patterns:
+        for m in pattern.finditer(text):
+            try:
+                d = date(century + int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except ValueError:
+                continue
+            if 0 <= (today - d).days <= _RECEIPT_DATE_MAX_AGE_DAYS:
+                candidates.append(d)
+    return max(candidates) if candidates else None
 
 
 def _parse_receipt(text: str) -> dict:
-    """
-    Extract store, amount, and date from raw OCR text of a German receipt.
-    All fields are best-effort; missing ones are returned as None.
+    """Extract store, amount and date from the OCR text of a German receipt.
+
+    All fields are best-effort; missing ones are ``None``. ``store_known`` and
+    ``keyword_found`` feed the heuristic confidences in ``_tesseract_fields``.
     """
     result: dict = {
         "store": None, "amount": None, "date": None, "raw": text,
         "keyword_found": None, "store_known": False,
     }
-    if not text:
-        return result
-
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     if not lines:
         return result
 
-    # ── Store name ────────────────────────────────────────────────────────
-    # 1) Scan first 25 lines for a known store name (case-insensitive)
-    for line in lines[:25]:
-        for store in _KNOWN_STORES:
-            if store.lower() in line.lower():
-                result["store"] = store  # use canonical capitalisation
-                result["store_known"] = True
-                break
-        if result["store"]:
+    # Store: a known brand in the header, else the first non-numeric line.
+    for line in lines[:_STORE_SEARCH_LINES]:
+        store = next((s for s in _KNOWN_STORES if s.lower() in line.lower()), None)
+        if store:
+            result["store"], result["store_known"] = store, True
             break
-
-    # 2) Fallback: first substantial non-numeric line
     if not result["store"]:
-        for line in lines[:8]:
+        for line in lines[:_STORE_FALLBACK_LINES]:
             if len(line) >= 3 and not re.match(r"^[\d\s\.\,\-\+\*\/\(\)€]+$", line):
-                result["store"] = line[:60]
+                result["store"] = line[:_STORE_NAME_MAX_LEN]
                 break
 
-    # ── Total amount — use store profile if available ─────────────────────
-    profile = _get_store_profile(result["store"]) if result["store"] else None
-    pref_kws   = profile["total_keywords"]  if profile else None
-    pref_next  = profile["amount_next_line"] if profile else False
-    amount, kw_found, _ = _parse_amount(text, pref_kws, pref_next)
-    result["amount"]        = amount
-    result["keyword_found"] = kw_found
+    profile = _get_store_profile(result["store"])
+    result["amount"], result["keyword_found"], _ = _parse_amount(
+        text,
+        profile["total_keywords"] if profile else None,
+        profile["amount_next_line"] if profile else False,
+    )
 
-    # ── Date ──────────────────────────────────────────────────────────────
-    today = date.today()
-    date_candidates: list[date] = []
-
-    # DD.MM.YYYY  /  DD/MM/YYYY  /  DD-MM-YYYY
-    for m in re.finditer(r"\b(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})\b", text):
-        try:
-            d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-            if d <= today and (today - d).days <= 90:
-                date_candidates.append(d)
-        except ValueError:
-            pass
-
-    # DD.MM.YY
-    for m in re.finditer(r"\b(\d{2})[./\-](\d{2})[./\-](\d{2})\b", text):
-        try:
-            year = 2000 + int(m.group(3))
-            d = date(year, int(m.group(2)), int(m.group(1)))
-            if d <= today and (today - d).days <= 90:
-                date_candidates.append(d)
-        except ValueError:
-            pass
-
-    if date_candidates:
-        # Prefer the most recent plausible date (within the last 90 days)
-        result["date"] = max(date_candidates).isoformat()
-
+    receipt_date = _parse_date_from_text(text)
+    result["date"] = receipt_date.isoformat() if receipt_date else None
     return result
-
-
-# Heuristic confidences for the Tesseract fallback. The Claude backend reports
-# its own; these approximate how reliable each Tesseract guess historically is.
-_CONF_STORE_KNOWN = 0.8      # store matched against _KNOWN_STORES
-_CONF_STORE_GUESS = 0.3      # first substantial text line fallback
-_CONF_AMOUNT_KEYWORD = 0.7   # amount found next to a total keyword
-_CONF_AMOUNT_FALLBACK = 0.4  # largest plausible amount in the document
-_CONF_DATE_FOUND = 0.7
-_MAX_AMOUNT_CANDIDATES = 3
 
 
 def _tesseract_fields(parsed: dict, text: str) -> dict:
     """Map a ``_parse_receipt`` result onto the unified extraction shape.
 
-    Attaches heuristic per-field confidences and up to
-    ``_MAX_AMOUNT_CANDIDATES`` alternative amount candidates (distinct
-    plausible values found anywhere in the OCR text, largest first) so the
-    mobile form can offer them when the primary guess is wrong.
+    Adds heuristic per-field confidences and up to ``_MAX_AMOUNT_CANDIDATES``
+    alternative amounts (other plausible values in the text, largest first)
+    that the phone form shows as tappable chips.
     """
-    from app.extraction import empty_result
+    result = extraction.empty_result("tesseract")
+    for key in ("store", "amount", "date", "raw"):
+        result[key] = parsed.get(key)
 
-    result = empty_result("tesseract")
-    result["store"] = parsed.get("store")
-    result["amount"] = parsed.get("amount")
-    result["date"] = parsed.get("date")
-    result["raw"] = parsed.get("raw")
-
+    fields = result["fields"]
     if result["store"]:
-        result["fields"]["store"]["confidence"] = (
+        fields["store"]["confidence"] = (
             _CONF_STORE_KNOWN if parsed.get("store_known") else _CONF_STORE_GUESS
         )
     if result["amount"] is not None:
-        result["fields"]["amount"]["confidence"] = (
+        fields["amount"]["confidence"] = (
             _CONF_AMOUNT_KEYWORD if parsed.get("keyword_found") else _CONF_AMOUNT_FALLBACK
         )
     if result["date"]:
-        result["fields"]["date"]["confidence"] = _CONF_DATE_FOUND
+        fields["date"]["confidence"] = _CONF_DATE_FOUND
 
-    amount_re = re.compile(r"(\d{1,4}[,\.]\d{2})")
-    seen: set[float] = set()
-    for raw_value in amount_re.findall(text or ""):
-        try:
-            v = round(float(raw_value.replace(",", ".")), 2)
-        except ValueError:
-            continue
-        if 0.5 <= v <= 9999 and v != result["amount"]:
-            seen.add(v)
-    result["fields"]["amount"]["candidates"] = sorted(seen, reverse=True)[:_MAX_AMOUNT_CANDIDATES]
-
+    alternatives = [v for v in _plausible_amounts(text) if v != result["amount"]]
+    fields["amount"]["candidates"] = alternatives[:_MAX_AMOUNT_CANDIDATES]
     return result
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+# ── Scan routes ───────────────────────────────────────────────────────────────
 
 @scan.route("/")
 def mobile():
@@ -330,30 +341,21 @@ def mobile():
 
 @scan.route("/qr")
 def qr_page():
-    """Desktop page that shows the QR code for the scan URL."""
-    port = request.environ.get("SERVER_PORT", 5000)
-    scan_url = f"http://{_local_ip()}:{port}/scan/"
-    return render_template("scan_qr.html", scan_url=scan_url)
+    """Desktop page showing a large QR code for the scan URL."""
+    return render_template("scan_qr.html", scan_url=_scan_url())
 
 
 @scan.route("/qr-image")
 def qr_image():
-    """Return a QR code PNG for the scan URL (server-side generated, always correct LAN IP)."""
+    """QR code PNG for the scan URL, generated server-side with the LAN IP."""
     import qrcode
 
-    port = request.environ.get("SERVER_PORT", 5000)
-    scan_url = f"http://{_local_ip()}:{port}/scan/"
-
     qr = qrcode.QRCode(box_size=10, border=3)
-    qr.add_data(scan_url)
+    qr.add_data(_scan_url())
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return Response(buf.read(), mimetype="image/png",
-                    headers={"Cache-Control": "no-store"})
+    qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
+    return Response(buf.getvalue(), mimetype="image/png", headers={"Cache-Control": "no-store"})
 
 
 @scan.route("/process", methods=["POST"])
@@ -365,8 +367,6 @@ def process():
     ``{store, amount, date, raw, backend, fields: {store|amount|date:
     {confidence, candidates}}, ocr_available, ocr_error, llm_error}``.
     """
-    from app import extraction
-
     if "image" not in request.files:
         return jsonify({"error": "No image provided"}), 400
 
@@ -376,142 +376,97 @@ def process():
     if extraction.claude_configured():
         result, llm_error = extraction.extract_with_claude(image_bytes)
         if result is not None:
-            result["ocr_available"] = True
-            result["ocr_error"] = None
-            result["llm_error"] = None
+            result.update(ocr_available=True, ocr_error=None, llm_error=None)
             return jsonify(result)
 
     ocr_text, ocr_error = _try_ocr(image_bytes)
-    ocr_available = ocr_text is not None
-
-    if ocr_available:
+    if ocr_text is not None:
         result = _tesseract_fields(_parse_receipt(ocr_text), ocr_text)
     else:
         result = extraction.empty_result("tesseract")
 
-    result["ocr_available"] = ocr_available
-    result["ocr_error"] = ocr_error
-    result["llm_error"] = llm_error
+    result.update(ocr_available=ocr_text is not None, ocr_error=ocr_error, llm_error=llm_error)
     return jsonify(result)
 
 
 @scan.route("/save", methods=["POST"])
 def save():
-    """Save the confirmed expense from the scan form."""
-    date_str   = request.form.get("date", "").strip()
-    store      = request.form.get("store", "").strip()
-    amount_str = request.form.get("amount", "").strip()
-    notes      = request.form.get("notes", "").strip() or None
-
-    errors = []
-    if not store:
-        errors.append("Store required.")
-
-    try:
-        amount = round(float(amount_str.replace(",", ".")), 2)
-    except ValueError:
-        errors.append("Invalid amount.")
-        amount = None
-
-    date_val = None
-    if date_str:
-        try:
-            date_val = date.fromisoformat(date_str)
-        except ValueError:
-            errors.append("Invalid date.")
-
+    """Save the expense confirmed on the phone."""
+    values, errors = read_expense_form(request.form)
     if errors:
-        for e in errors:
-            flash(e, "danger")
+        for key in errors:
+            flash(t(key), "danger")
         return redirect(url_for("scan.mobile"))
 
-    expense = Expense(
-        date=date_val,
-        store=store,
-        amount=amount,
-        category=get_category(store),
-        notes=notes,
-    )
-    db.session.add(expense)
+    values["category"] = get_category(values["store"], values["store_detail"])
+    db.session.add(Expense(**values))
     db.session.commit()
-    flash(f"Expense of €{amount:.2f} at {store} saved.", "success")
+    flash(t("flash_expense_added", format_eur(values["amount"]), values["store"]), "success")
     return redirect(url_for("main.dashboard"))
 
 
 # ── Receipt sample database ───────────────────────────────────────────────────
 
-
 def _samples_dir() -> str:
-    """Return (and create) the directory where sample images are stored."""
-    from config import Config
-    d = os.path.join(os.path.dirname(Config.CSV_PATH), "data", "receipt_samples")
-    os.makedirs(d, exist_ok=True)
-    return d
+    """Return (and create) the directory holding uploaded sample images."""
+    path = current_app.config["RECEIPT_SAMPLES_DIR"]
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def _build_store_profile(store: str) -> None:
-    """
-    Analyse all OCR-processed samples for *store* and update (or delete) its
-    StoreProfile, learning which total keyword and line layout works best.
-    """
-    import json
+    """Re-learn the StoreProfile for ``store`` from all its OCR-processed samples.
 
-    from app.models import ReceiptSample, StoreProfile
-
-    samples = (ReceiptSample.query
-               .filter_by(store=store)
-               .filter(ReceiptSample.ocr_text.isnot(None))
-               .all())
+    For every candidate keyword, counts the samples in which it appears with
+    an amount on the same or the following line. Keywords are stored by hit
+    count, and ``amount_next_line`` is set when most hits were on the next
+    line. The profile is deleted when no samples remain.
+    """
+    samples = (
+        ReceiptSample.query
+        .filter_by(store=store)
+        .filter(ReceiptSample.ocr_text.isnot(None))
+        .all()
+    )
+    profile = StoreProfile.query.filter_by(store=store).first()
 
     if not samples:
-        existing = StoreProfile.query.filter_by(store=store).first()
-        if existing:
-            db.session.delete(existing)
+        if profile:
+            db.session.delete(profile)
             db.session.commit()
         return
 
-    amount_re = re.compile(r"(\d{1,4}[,\.]\d{2})")
-    kw_hits: dict[str, dict] = {kw: {"total": 0, "next_line": 0} for kw in _CANDIDATE_KEYWORDS}
-
+    hits = {kw: {"total": 0, "next_line": 0} for kw in _CANDIDATE_KEYWORDS}
     for sample in samples:
         lines = sample.ocr_text.splitlines()
         for kw in _CANDIDATE_KEYWORDS:
-            kw_re = re.compile(re.escape(kw), re.IGNORECASE)
-            for i, line in enumerate(lines):
-                if not kw_re.search(line):
-                    continue
-                if amount_re.search(line):
-                    kw_hits[kw]["total"] += 1
-                    break
-                if i + 1 < len(lines) and amount_re.search(lines[i + 1]):
-                    kw_hits[kw]["total"]     += 1
-                    kw_hits[kw]["next_line"] += 1
-                    break
+            amount, _, next_line = _find_amount_near_keyword(
+                lines, re.compile(re.escape(kw), re.IGNORECASE), prefer_next_line=False
+            )
+            if amount is not None:
+                hits[kw]["total"] += 1
+                hits[kw]["next_line"] += int(next_line)
 
     successful = sorted(
-        [(kw, d) for kw, d in kw_hits.items() if d["total"] > 0],
-        key=lambda x: x[1]["total"], reverse=True,
+        ((kw, h) for kw, h in hits.items() if h["total"]),
+        key=lambda item: item[1]["total"],
+        reverse=True,
     )
-    ordered_kws = [kw for kw, _ in successful]
-    total_votes     = sum(d["total"]     for _, d in successful)
-    next_line_votes = sum(d["next_line"] for _, d in successful)
-    amount_next_line = bool(total_votes and next_line_votes / total_votes > 0.5)
+    total_votes = sum(h["total"] for _, h in successful)
+    next_line_votes = sum(h["next_line"] for _, h in successful)
 
-    profile = StoreProfile.query.filter_by(store=store).first()
     if not profile:
         profile = StoreProfile(store=store)
         db.session.add(profile)
-
-    profile.total_keywords_json = json.dumps(ordered_kws)
-    profile.amount_next_line    = amount_next_line
-    profile.sample_count        = len(samples)
-    profile.last_updated        = datetime.now(UTC)
+    profile.total_keywords_json = json.dumps([kw for kw, _ in successful])
+    profile.amount_next_line = bool(total_votes and next_line_votes / total_votes > _NEXT_LINE_MAJORITY)
+    profile.sample_count = len(samples)
+    profile.last_updated = datetime.now(UTC)
     db.session.commit()
 
 
-def _get_store_profile(store: str) -> dict | None:
-    """Load the learned profile for *store*, or None if none exists yet."""
-    from app.models import StoreProfile
+def _get_store_profile(store: str | None) -> dict | None:
+    """Learned parsing rules for ``store``, or ``None`` if there are none yet."""
     if not store:
         return None
     p = StoreProfile.query.filter_by(store=store).first()
@@ -522,52 +477,51 @@ def _get_store_profile(store: str) -> dict | None:
 
 @scan.route("/samples")
 def samples():
-    from app.models import ReceiptSample, StoreProfile
+    """Sample upload form, learned profiles and the sample gallery."""
     all_samples = ReceiptSample.query.order_by(ReceiptSample.uploaded_at.desc()).all()
-    profiles    = StoreProfile.query.order_by(StoreProfile.store).all()
-    all_stores  = sorted({s.store for s in all_samples})
-    return render_template("scan_samples.html",
-                           samples=all_samples,
-                           profiles=profiles,
-                           all_stores=all_stores)
+    return render_template(
+        "scan_samples.html",
+        samples=all_samples,
+        profiles=StoreProfile.query.order_by(StoreProfile.store).all(),
+        all_stores=sorted({sample.store for sample in all_samples}),
+    )
 
 
 @scan.route("/samples/upload", methods=["POST"])
 def upload_sample():
-    from app.models import ReceiptSample
-    store      = request.form.get("store", "").strip()
-    notes      = request.form.get("notes", "").strip() or None
+    """Store a reference receipt, OCR it and rebuild the store's profile."""
+    store = request.form.get("store", "").strip()
+    notes = request.form.get("notes", "").strip() or None
     image_file = request.files.get("image")
 
     if not store or not image_file or not image_file.filename:
-        flash("Store and image are required.", "danger")
+        flash(t("flash_sample_required"), "danger")
         return redirect(url_for("scan.samples"))
 
-    ext      = os.path.splitext(image_file.filename)[1].lower() or ".jpg"
-    filename = f"{_uuid.uuid4().hex}{ext}"
+    ext = os.path.splitext(image_file.filename)[1].lower() or ".jpg"
+    if ext not in _ALLOWED_SAMPLE_EXTENSIONS:
+        flash(t("flash_sample_bad_type"), "danger")
+        return redirect(url_for("scan.samples"))
+
+    filename = f"{uuid.uuid4().hex}{ext}"
     image_bytes = image_file.read()
     with open(os.path.join(_samples_dir(), filename), "wb") as f:
         f.write(image_bytes)
 
     ocr_text, ocr_error = _try_ocr(image_bytes)
 
-    extracted_amount = extracted_date = kw_found = None
+    extracted_amount = kw_found = extracted_date = None
     next_line = False
-
     if ocr_text:
-        profile  = _get_store_profile(store)
-        pref_kws = profile["total_keywords"]  if profile else None
-        pref_nxt = profile["amount_next_line"] if profile else False
-        extracted_amount, kw_found, next_line = _parse_amount(ocr_text, pref_kws, pref_nxt)
+        profile = _get_store_profile(store)
+        extracted_amount, kw_found, next_line = _parse_amount(
+            ocr_text,
+            profile["total_keywords"] if profile else None,
+            profile["amount_next_line"] if profile else False,
+        )
+        extracted_date = _parse_date_from_text(ocr_text)
 
-        parsed = _parse_receipt(ocr_text)
-        if parsed.get("date"):
-            try:
-                extracted_date = date.fromisoformat(parsed["date"])
-            except ValueError:
-                pass
-
-    sample = ReceiptSample(
+    db.session.add(ReceiptSample(
         store=store,
         image_filename=filename,
         ocr_text=ocr_text,
@@ -576,40 +530,37 @@ def upload_sample():
         extracted_date=extracted_date,
         total_keyword_found=kw_found,
         amount_on_next_line=next_line,
-    )
-    db.session.add(sample)
+    ))
     db.session.commit()
-
     _build_store_profile(store)
 
     if ocr_text:
-        amt_str = f"€{extracted_amount:.2f}" if extracted_amount else "not detected"
-        flash(f"Sample saved and analysed — amount: {amt_str}.", "success")
+        amount_str = format_eur(extracted_amount) if extracted_amount else t("samples_no_amount")
+        flash(t("flash_sample_saved", amount_str), "success")
     else:
-        flash(f"Sample saved, but OCR failed: {ocr_error}", "warning")
-
+        flash(t("flash_sample_ocr_failed", ocr_error), "warning")
     return redirect(url_for("scan.samples"))
 
 
-@scan.route("/samples/<int:id>/delete", methods=["POST"])
-def delete_sample(id):
-    from app.models import ReceiptSample
-    sample = ReceiptSample.query.get_or_404(id)
-    store  = sample.store
+@scan.route("/samples/<int:sample_id>/delete", methods=["POST"])
+def delete_sample(sample_id: int):
+    """Delete a sample and its image, then rebuild the store's profile."""
+    sample = db.get_or_404(ReceiptSample, sample_id)
+    store = sample.store
     img_path = os.path.join(_samples_dir(), sample.image_filename)
     if os.path.isfile(img_path):
         os.remove(img_path)
     db.session.delete(sample)
     db.session.commit()
     _build_store_profile(store)
-    flash("Sample deleted.", "info")
+    flash(t("flash_sample_deleted"), "info")
     return redirect(url_for("scan.samples"))
 
 
-@scan.route("/samples/image/<int:id>")
-def sample_image(id):
-    from app.models import ReceiptSample
-    sample   = ReceiptSample.query.get_or_404(id)
+@scan.route("/samples/image/<int:sample_id>")
+def sample_image(sample_id: int):
+    """Serve a stored sample image."""
+    sample = db.get_or_404(ReceiptSample, sample_id)
     img_path = os.path.join(_samples_dir(), sample.image_filename)
     if not os.path.isfile(img_path):
         return "Image not found", 404
@@ -617,10 +568,9 @@ def sample_image(id):
 
 
 @scan.route("/samples/<path:store>/reanalyze", methods=["POST"])
-def reanalyze_store(store):
-    from app.models import ReceiptSample
+def reanalyze_store(store: str):
+    """Rebuild one store's profile from its existing samples."""
     _build_store_profile(store)
-    n = ReceiptSample.query.filter_by(store=store).filter(
-        ReceiptSample.ocr_text.isnot(None)).count()
-    flash(f"Profile for '{store}' rebuilt from {n} samples.", "success")
+    n = ReceiptSample.query.filter_by(store=store).filter(ReceiptSample.ocr_text.isnot(None)).count()
+    flash(t("flash_profile_rebuilt", store, n), "success")
     return redirect(url_for("scan.samples"))

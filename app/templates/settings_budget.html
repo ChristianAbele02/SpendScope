@@ -8,24 +8,7 @@
   </h5>
 </div>
 
-<!-- Settings tabs -->
-<ul class="nav nav-tabs border-secondary mb-4">
-  <li class="nav-item">
-    <a class="nav-link active" href="{{ url_for('settings.budget') }}">
-      <i class="fa-solid fa-wallet me-1"></i>{{ t('nav_settings_budget') }}
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link text-secondary" href="{{ url_for('settings.category_budgets') }}">
-      <i class="fa-solid fa-tags me-1"></i>{{ t('nav_settings_limits') }}
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link text-secondary" href="{{ url_for('settings.store_aliases') }}">
-      <i class="fa-solid fa-code-merge me-1"></i>{{ t('nav_settings_aliases') }}
-    </a>
-  </li>
-</ul>
+{% set active_tab = 'budget' %}{% include "_settings_tabs.html" %}
 
 <div class="row g-4">
   <!-- Current periods -->
@@ -53,8 +36,10 @@
               <td class="text-end pe-3">
                 <form method="post" action="{{ url_for('settings.budget_delete', period_id=p.id) }}"
                       onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
-                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}" title="{{ t('delete') }}"
-                          {% if periods|length == 1 %}disabled title="{{ t('budget_last_entry') }}"{% endif %}>
+                  {%- set last_entry = periods|length == 1 %}
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}"
+                          title="{{ t('budget_last_entry') if last_entry else t('delete') }}"
+                          {% if last_entry %}disabled{% endif %}>
                     <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                   </button>
                 </form>
@@ -110,11 +95,4 @@
     </div>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  // Pre-set today's date
-  document.querySelector('input[name="effective_from"]').valueAsDate = new Date();
-</script>
 {% endblock %}

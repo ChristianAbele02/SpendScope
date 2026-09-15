@@ -8,24 +8,7 @@
   </h5>
 </div>
 
-<!-- Settings tabs -->
-<ul class="nav nav-tabs border-secondary mb-4">
-  <li class="nav-item">
-    <a class="nav-link text-secondary" href="{{ url_for('settings.budget') }}">
-      <i class="fa-solid fa-wallet me-1"></i>{{ t('nav_settings_budget') }}
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link text-secondary" href="{{ url_for('settings.category_budgets') }}">
-      <i class="fa-solid fa-tags me-1"></i>{{ t('nav_settings_limits') }}
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link active" href="{{ url_for('settings.store_aliases') }}">
-      <i class="fa-solid fa-code-merge me-1"></i>{{ t('nav_settings_aliases') }}
-    </a>
-  </li>
-</ul>
+{% set active_tab = 'aliases' %}{% include "_settings_tabs.html" %}
 
 <div class="row g-4">
   <!-- Existing aliases -->

@@ -1,14 +1,16 @@
+"""Category assignment and the one-off CSV import.
+
+The CSV is opened read-only; importing never modifies the source file.
+"""
+import csv
 import re
 from datetime import date, datetime
-
-import pandas as pd
 
 from app import db
 from app.models import Expense
 
-# ---------------------------------------------------------------------------
-# Store → Category mapping (case-insensitive substring match)
-# ---------------------------------------------------------------------------
+# Store keyword → category. Matched case-insensitively on word boundaries
+# (see get_category), so the order of entries here does not matter.
 STORE_CATEGORY_MAP = {
     # Groceries
     "aldi": "Lebensmittel",
@@ -20,13 +22,13 @@ STORE_CATEGORY_MAP = {
     "marktkauf": "Lebensmittel",
     "combi": "Lebensmittel",
     "netto": "Lebensmittel",
-    "laden": "Sonstiges",
+    "pollmeier": "Lebensmittel",
     # Fuel
     "tanken": "Tanken",
-    # Furniture / Home
+    # Furniture / home
     "ikea": "Einrichtung",
     "jysk": "Einrichtung",
-    # Pharmacy / Drugstore / Beauty
+    # Drugstore / beauty ("muller"/"turke"/"waschstrasse" cover OCR without umlauts)
     "rossmann": "Drogerie",
     "dm": "Drogerie",
     "müller": "Drogerie",
@@ -35,7 +37,7 @@ STORE_CATEGORY_MAP = {
     "rituals": "Drogerie",
     # Online
     "amazon": "Online",
-    # Eating out / Entertainment
+    # Eating out / leisure
     "ausgehen": "Ausgehen",
     "italiener": "Ausgehen",
     "subway": "Ausgehen",
@@ -44,18 +46,18 @@ STORE_CATEGORY_MAP = {
     "pommes": "Ausgehen",
     "restaurant": "Ausgehen",
     "freibad": "Ausgehen",
+    "h2o": "Ausgehen",
     # Hardware / DIY
     "obi": "Baumarkt",
     "toom": "Baumarkt",
     "wez": "Baumarkt",
-    "pollmeier": "Lebensmittel",
-    # Misc shops
-    "action": "Sonstiges",
-    # Car-related (not fuel)
+    # Car (not fuel)
     "waschstraße": "Auto",
     "waschstrasse": "Auto",
     "parken": "Auto",
-    "h2o": "Ausgehen",
+    # Explicitly miscellaneous
+    "action": "Sonstiges",
+    "laden": "Sonstiges",
 }
 
 CATEGORY_COLORS = {
@@ -116,6 +118,28 @@ def _parse_date(value) -> date | None:
         return None
 
 
+# Column order of the historical spreadsheet export:
+# Datum, Laden, Ausgaben, Überschuss, Detail (further columns are ignored).
+_CSV_COLUMNS = ("date", "store", "amount", "surplus", "detail")
+
+
+def _read_csv_rows(csv_path: str) -> list[dict[str, str]]:
+    """Read the CSV (read-only) into dicts keyed by ``_CSV_COLUMNS``.
+
+    The first line is treated as the header. Completely empty lines are
+    dropped; short rows are padded with empty strings. ``utf-8-sig`` also
+    accepts files saved with a byte-order mark (e.g. by Excel).
+    """
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        next(reader, None)  # header
+        return [
+            dict(zip(_CSV_COLUMNS, [*fields, *[""] * len(_CSV_COLUMNS)], strict=False))
+            for fields in reader
+            if fields
+        ]
+
+
 def _dedupe_key(date_val, store: str, amount: float) -> tuple:
     """Identity used to detect a row already present in the database."""
     return (date_val, store, round(amount, 2))
@@ -138,14 +162,8 @@ def import_csv(csv_path: str, clear_existing: bool = False) -> dict:
         (rows already present, append mode only).
     """
     try:
-        df = pd.read_csv(
-            csv_path,
-            header=0,
-            names=["date", "store", "amount", "surplus", "detail", "c6", "c7", "c8", "c9"],
-            dtype=str,
-            keep_default_na=False,
-        )
-    except (OSError, ValueError, pd.errors.ParserError) as exc:
+        rows = _read_csv_rows(csv_path)
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
         return {"success": False, "error": str(exc)}
 
     if clear_existing:
@@ -164,12 +182,12 @@ def import_csv(csv_path: str, clear_existing: bool = False) -> dict:
     skipped = 0
     duplicates = 0
 
-    for _, row in df.iterrows():
-        store = row.get("store", "").strip()
-        amount_raw = row.get("amount", "").strip()
-        detail = row.get("detail", "").strip()
+    for row in rows:
+        store = row["store"].strip()
+        amount_raw = row["amount"].strip()
+        detail = row["detail"].strip()
 
-        # Skip header row or empty rows
+        # Skip rows without store or amount, and repeated header rows ("Laden")
         if not store or store.lower() == "laden" or not amount_raw:
             skipped += 1
             continue
@@ -180,7 +198,7 @@ def import_csv(csv_path: str, clear_existing: bool = False) -> dict:
             skipped += 1
             continue
 
-        date_val = _parse_date(row.get("date", ""))
+        date_val = _parse_date(row["date"])
         detail_val = detail if detail and detail.lower() != "nan" else None
 
         key = _dedupe_key(date_val, store, amount)

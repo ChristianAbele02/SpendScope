@@ -1,19 +1,48 @@
+"""Analytics: budget periods, aggregations, forecast and anomaly detection.
+
+All "month" arguments are *budget period* labels. With PERIOD_START_DAY = 7
+the period labelled (2024, 3) runs from 7 March to 6 April; see period_bounds.
+"""
 import math
 from calendar import monthrange
+from collections.abc import Callable
 from datetime import date, timedelta
+from typing import TypeVar
 
-from flask import g, has_request_context
+from flask import current_app, g, has_request_context
 from sqlalchemy import func
 
 from app import db
-from app.models import BudgetPeriod, Expense
-from app.parser import CATEGORY_COLORS
+from app.models import BudgetPeriod, CategoryBudget, Expense, StoreAlias
+from app.parser import CATEGORY_COLORS, DEFAULT_CATEGORY
 
 # Lowest and highest day-of-month that exists in every month. The period start
 # day is clamped to this range so date(year, month, start) can never raise.
 _MIN_PERIOD_START_DAY = 1
 _MAX_PERIOD_START_DAY = 28
 _BUDGET_FALLBACK = 300.0
+_FALLBACK_COLOR = CATEGORY_COLORS[DEFAULT_CATEGORY]
+
+# An expense is flagged as unusual when it exceeds mean + k·SD for its store.
+_ANOMALY_SIGMA = 2.0
+_ANOMALY_MIN_SAMPLES = 5
+
+T = TypeVar("T")
+
+
+def _request_cached(key: str, loader: Callable[[], T]) -> T:
+    """Return ``loader()``, memoised on ``flask.g`` for the current request.
+
+    Outside a request (CLI, tests using only an app context) nothing is cached.
+    """
+    if has_request_context():
+        cached = g.get(key)
+        if cached is not None:
+            return cached
+    value = loader()
+    if has_request_context():
+        setattr(g, key, value)
+    return value
 
 
 # ── Period helpers ────────────────────────────────────────────────────────────
@@ -21,7 +50,6 @@ _BUDGET_FALLBACK = 300.0
 def _period_start_day() -> int:
     """Return the configured period start day, clamped to 1–28."""
     try:
-        from flask import current_app
         raw = int(current_app.config.get("PERIOD_START_DAY", 1))
     except (RuntimeError, TypeError, ValueError):
         return _MIN_PERIOD_START_DAY
@@ -31,9 +59,9 @@ def _period_start_day() -> int:
 def period_for_date(d: date) -> tuple[int, int]:
     """Map an expense date to its budget period label (year, month).
 
-    With start_day=7: April 2 → (year, 3) [March period],
-                      April 7 → (year, 4) [April period].
-    With start_day=1: behaves like calendar months.
+    With start day 7: 2 April → (year, 3) [March period],
+                      7 April → (year, 4) [April period].
+    With start day 1 this is the calendar month.
     """
     start = _period_start_day()
     if start <= 1 or d.day >= start:
@@ -44,25 +72,30 @@ def period_for_date(d: date) -> tuple[int, int]:
 
 
 def period_bounds(year: int, month: int) -> tuple[date, date]:
-    """Return the [start, end] dates (inclusive) for a budget period label."""
+    """Return the inclusive [start, end] dates of a budget period label."""
     start = _period_start_day()
     if start <= 1:
-        last_day = monthrange(year, month)[1]
-        return date(year, month, 1), date(year, month, last_day)
+        return date(year, month, 1), date(year, month, monthrange(year, month)[1])
     p_start = date(year, month, start)
-    if month == 12:
-        p_end = date(year + 1, 1, start) - timedelta(days=1)
-    else:
-        p_end = date(year, month + 1, start) - timedelta(days=1)
-    return p_start, p_end
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return p_start, date(next_year, next_month, start) - timedelta(days=1)
 
 
-def _year_bounds(year: int) -> tuple[date, date]:
-    """Return the date range that covers all periods labelled with this year."""
+def year_bounds(year: int) -> tuple[date, date]:
+    """Return the inclusive date range covering all twelve periods of a year label."""
     start = _period_start_day()
     if start <= 1:
         return date(year, 1, 1), date(year, 12, 31)
     return date(year, 1, start), date(year + 1, 1, start) - timedelta(days=1)
+
+
+def _prev_month(year: int, month: int, n: int = 1) -> tuple[int, int]:
+    """Return the period label ``n`` periods before (year, month)."""
+    month -= n
+    while month <= 0:
+        month += 12
+        year -= 1
+    return year, month
 
 
 # ── Budget lookup ─────────────────────────────────────────────────────────────
@@ -70,26 +103,18 @@ def _year_bounds(year: int) -> tuple[date, date]:
 def _budget_periods() -> list[tuple[date, float]]:
     """All budget rules as (effective_from, monthly_budget), newest first.
 
-    Cached for the duration of a request so repeated budget lookups inside
-    aggregation loops (one per month bucket) issue a single query rather than N.
+    Cached per request so aggregation loops that look up one budget per period
+    issue a single query instead of one per period.
     """
-    if has_request_context():
-        cached = getattr(g, "_budget_periods_cache", None)
-        if cached is not None:
-            return cached
-    rows = (
-        BudgetPeriod.query
-        .order_by(BudgetPeriod.effective_from.desc())
-        .all()
-    )
-    periods = [(p.effective_from, p.monthly_budget) for p in rows]
-    if has_request_context():
-        g._budget_periods_cache = periods
-    return periods
+    def load() -> list[tuple[date, float]]:
+        rows = BudgetPeriod.query.order_by(BudgetPeriod.effective_from.desc()).all()
+        return [(p.effective_from, p.monthly_budget) for p in rows]
+
+    return _request_cached("_budget_periods_cache", load)
 
 
 def budget_for_month(year: int, month: int) -> float:
-    """Return the monthly budget in effect for the given period label."""
+    """Return the budget of the newest rule effective on or before the period start."""
     p_start, _ = period_bounds(year, month)
     for effective_from, budget in _budget_periods():
         if effective_from <= p_start:
@@ -97,48 +122,80 @@ def budget_for_month(year: int, month: int) -> float:
     return _BUDGET_FALLBACK
 
 
-# ── Basic queries ─────────────────────────────────────────────────────────────
+# ── Shared lookups ────────────────────────────────────────────────────────────
 
-def _dated_expense_rows():
+def _dated_expense_rows() -> list:
     """All dated expenses as (date, amount, category) rows, cached per request.
 
-    The period-aggregation helpers below must group in Python because the custom
-    period label is not expressible in SQL. Sharing one fetch turns the six
-    full-table scans a statistics page would otherwise trigger into one.
+    Period labels cannot be expressed in SQL, so period aggregations group in
+    Python. Sharing one fetch avoids a full table scan per chart.
     """
-    if has_request_context():
-        cached = getattr(g, "_dated_rows_cache", None)
-        if cached is not None:
-            return cached
-    rows = (
-        db.session.query(Expense.date, Expense.amount, Expense.category)
-        .filter(Expense.date.isnot(None))
-        .all()
+    return _request_cached(
+        "_dated_rows_cache",
+        lambda: (
+            db.session.query(Expense.date, Expense.amount, Expense.category)
+            .filter(Expense.date.isnot(None))
+            .all()
+        ),
     )
-    if has_request_context():
-        g._dated_rows_cache = rows
-    return rows
+
+
+def _period_totals() -> dict[tuple[int, int], float]:
+    """Total spend per period label across all dated expenses."""
+    totals: dict[tuple[int, int], float] = {}
+    for row in _dated_expense_rows():
+        key = period_for_date(row.date)
+        totals[key] = totals.get(key, 0.0) + row.amount
+    return totals
+
+
+def get_alias_map() -> dict[str, str]:
+    """Return {raw_name: canonical_name} for all store aliases (cached per request)."""
+    return _request_cached(
+        "_alias_map_cache",
+        lambda: {sa.alias: sa.canonical for sa in StoreAlias.query.all()},
+    )
+
+
+def _canonical_store(store: str, detail: str | None, alias_map: dict[str, str]) -> str:
+    """Resolve a raw (store, store_detail) pair to the name shown in the UI."""
+    raw = detail or store
+    return alias_map.get(raw, raw)
+
+
+def get_category_limits() -> dict[str, float]:
+    """Return {category: monthly_limit} for all category budgets."""
+    return {cb.category: cb.monthly_limit for cb in CategoryBudget.query.all()}
 
 
 def get_available_years() -> list[int]:
-    """Return sorted list of period-years that have expense data."""
-    years = {period_for_date(r.date)[0] for r in _dated_expense_rows()}
-    return sorted(years)
+    """Return the sorted period-years that contain expense data."""
+    return sorted({period_for_date(r.date)[0] for r in _dated_expense_rows()})
+
+
+def get_distinct_stores() -> list[str]:
+    """All canonical store names (aliases applied), sorted, for filter dropdowns."""
+    alias_map = get_alias_map()
+    rows = db.session.query(Expense.store, Expense.store_detail).distinct().all()
+    return sorted({_canonical_store(r.store, r.store_detail, alias_map) for r in rows})
+
+
+# ── Period summaries ──────────────────────────────────────────────────────────
+
+def _filter_period(q, year: int | None, month: int | None):
+    """Restrict a query to one period (year + month), a whole year, or nothing."""
+    if year and month:
+        start, end = period_bounds(year, month)
+    elif year:
+        start, end = year_bounds(year)
+    else:
+        return q
+    return q.filter(Expense.date >= start, Expense.date <= end)
 
 
 def get_monthly_summary(year: int, month: int) -> dict:
-    """Total spending, budget, and remaining for one period."""
-    p_start, p_end = period_bounds(year, month)
-    total = (
-        db.session.query(func.sum(Expense.amount))
-        .filter(
-            Expense.date.isnot(None),
-            Expense.date >= p_start,
-            Expense.date <= p_end,
-        )
-        .scalar()
-        or 0.0
-    )
+    """Total spend, budget, remaining budget and percentage used for one period."""
+    total = _filter_period(db.session.query(func.sum(Expense.amount)), year, month).scalar() or 0.0
     budget = budget_for_month(year, month)
     return {
         "year": year,
@@ -151,78 +208,58 @@ def get_monthly_summary(year: int, month: int) -> dict:
 
 
 def get_monthly_transaction_count(year: int, month: int) -> int:
-    p_start, p_end = period_bounds(year, month)
-    return (
-        db.session.query(func.count(Expense.id))
-        .filter(
-            Expense.date.isnot(None),
-            Expense.date >= p_start,
-            Expense.date <= p_end,
-        )
-        .scalar()
-        or 0
-    )
+    """Number of expenses (refunds included) in one period."""
+    return _filter_period(db.session.query(func.count(Expense.id)), year, month).scalar() or 0
 
 
 def get_monthly_trends(years: list[int] | None = None) -> list[dict]:
-    """Monthly spending totals grouped by period, across all (or selected) years."""
-    rows = _dated_expense_rows()
-
+    """Per-period totals and budgets, optionally restricted to some period-years."""
     buckets: dict[tuple[int, int], dict] = {}
-    for row in rows:
-        py, pm = period_for_date(row.date)
-        if years and py not in years:
+    for row in _dated_expense_rows():
+        key = period_for_date(row.date)
+        if years and key[0] not in years:
             continue
-        key = (py, pm)
-        if key not in buckets:
-            buckets[key] = {"total": 0.0, "count": 0}
-        buckets[key]["total"] += row.amount
-        buckets[key]["count"] += 1
+        bucket = buckets.setdefault(key, {"total": 0.0, "count": 0})
+        bucket["total"] += row.amount
+        bucket["count"] += 1
 
     results = []
     for (y, m), data in sorted(buckets.items()):
         total = round(data["total"], 2)
-        bdg = budget_for_month(y, m)
-        results.append(
-            {
-                "year": y,
-                "month": m,
-                "label": f"{m:02d}/{y}",
-                "total": total,
-                "budget": bdg,
-                "over_budget": total > bdg,
-                "count": data["count"],
-            }
-        )
+        budget = budget_for_month(y, m)
+        results.append({
+            "year": y,
+            "month": m,
+            "label": f"{m:02d}/{y}",
+            "total": total,
+            "budget": budget,
+            "over_budget": total > budget,
+            "count": data["count"],
+        })
     return results
 
 
 def get_category_breakdown(year: int | None = None, month: int | None = None) -> list[dict]:
-    """Spending totals grouped by category, sorted descending. Includes monthly limit info."""
+    """Spend per category, largest first. Limit fields are filled for single periods."""
     q = db.session.query(
         Expense.category,
         func.sum(Expense.amount).label("total"),
         func.count(Expense.id).label("count"),
     )
-    if year and month:
-        p_start, p_end = period_bounds(year, month)
-        q = q.filter(Expense.date >= p_start, Expense.date <= p_end)
-    elif year:
-        y_start, y_end = _year_bounds(year)
-        q = q.filter(Expense.date >= y_start, Expense.date <= y_end)
+    q = _filter_period(q, year, month)
     q = q.group_by(Expense.category).order_by(func.sum(Expense.amount).desc())
 
     limits = get_category_limits() if (year and month) else {}
     results = []
     for row in q.all():
-        cat = row.category or "Sonstiges"
+        cat = row.category or DEFAULT_CATEGORY
         total = round(float(row.total), 2)
         limit = limits.get(cat)
         results.append({
             "category": cat,
             "total": total,
             "count": int(row.count),
-            "color": CATEGORY_COLORS.get(cat, "#9E9E9E"),
+            "color": CATEGORY_COLORS.get(cat, _FALLBACK_COLOR),
             "limit": limit,
             "over_limit": (total > limit) if limit is not None else False,
             "limit_pct": round(min(total / limit * 100, 100), 1) if limit else None,
@@ -233,67 +270,43 @@ def get_category_breakdown(year: int | None = None, month: int | None = None) ->
 def get_store_breakdown(
     year: int | None = None, month: int | None = None, limit: int = 10
 ) -> list[dict]:
-    """Top stores by total spending. Store names are resolved through alias map."""
+    """Top stores by total spend, with aliases merged into their canonical name."""
     q = db.session.query(
         Expense.store,
         Expense.store_detail,
         func.sum(Expense.amount).label("total"),
         func.count(Expense.id).label("count"),
     )
-    if year and month:
-        p_start, p_end = period_bounds(year, month)
-        q = q.filter(Expense.date >= p_start, Expense.date <= p_end)
-    elif year:
-        y_start, y_end = _year_bounds(year)
-        q = q.filter(Expense.date >= y_start, Expense.date <= y_end)
-    q = q.group_by(Expense.store, Expense.store_detail)
+    q = _filter_period(q, year, month).group_by(Expense.store, Expense.store_detail)
 
     alias_map = get_alias_map()
     merged: dict[str, dict] = {}
     for row in q.all():
-        raw = row.store_detail if row.store_detail else row.store
-        canonical = alias_map.get(raw, raw)
-        if canonical not in merged:
-            merged[canonical] = {"total": 0.0, "count": 0}
-        merged[canonical]["total"] += float(row.total)
-        merged[canonical]["count"] += int(row.count)
+        entry = merged.setdefault(
+            _canonical_store(row.store, row.store_detail, alias_map), {"total": 0.0, "count": 0}
+        )
+        entry["total"] += float(row.total)
+        entry["count"] += int(row.count)
 
-    sorted_stores = sorted(merged.items(), key=lambda x: x[1]["total"], reverse=True)[:limit]
+    top = sorted(merged.items(), key=lambda kv: kv[1]["total"], reverse=True)[:limit]
     return [
         {"store": name, "display_store": name, "total": round(d["total"], 2), "count": d["count"]}
-        for name, d in sorted_stores
+        for name, d in top
     ]
 
 
-def get_distinct_stores() -> list[str]:
-    """All unique canonical store names for filter dropdowns (aliases applied)."""
-    rows = db.session.query(Expense.store, Expense.store_detail).all()
-    alias_map = get_alias_map()
-    names: set[str] = set()
-    for row in rows:
-        raw = row.store_detail if row.store_detail else row.store
-        names.add(alias_map.get(raw, raw))
-    return sorted(names)
+def get_store_anomaly_thresholds(
+    min_samples: int = _ANOMALY_MIN_SAMPLES,
+) -> dict[str, tuple[float, float]]:
+    """Per-store thresholds above which an expense is flagged as unusually high.
 
+    Only positive amounts are used, so refunds do not distort the statistics.
+    Stores with fewer than ``min_samples`` purchases, or with no variation at
+    all, are omitted.
 
-# ── Alias & limit helpers ─────────────────────────────────────────────────────
-
-def get_alias_map() -> dict[str, str]:
-    """Return {raw_name: canonical_name} for all defined store aliases."""
-    from app.models import StoreAlias
-    return {sa.alias: sa.canonical for sa in StoreAlias.query.all()}
-
-
-def get_category_limits() -> dict[str, float]:
-    """Return {category: monthly_limit} for all defined category budgets."""
-    from app.models import CategoryBudget
-    return {cb.category: cb.monthly_limit for cb in CategoryBudget.query.all()}
-
-
-def get_store_anomaly_thresholds(min_samples: int = 5) -> dict[str, tuple[float, float]]:
-    """
-    Return {canonical_store: (mean, std)} for stores with >= min_samples positive-amount entries.
-    Only positive amounts are used so refunds don't distort the average.
+    Returns:
+        ``{canonical_store: (mean, threshold)}`` with
+        ``threshold = mean + _ANOMALY_SIGMA · SD`` (population SD).
     """
     rows = (
         db.session.query(Expense.store, Expense.store_detail, Expense.amount)
@@ -303,50 +316,45 @@ def get_store_anomaly_thresholds(min_samples: int = 5) -> dict[str, tuple[float,
     alias_map = get_alias_map()
     buckets: dict[str, list[float]] = {}
     for row in rows:
-        raw = row.store_detail if row.store_detail else row.store
-        canonical = alias_map.get(raw, raw)
-        buckets.setdefault(canonical, []).append(row.amount)
+        buckets.setdefault(_canonical_store(row.store, row.store_detail, alias_map), []).append(
+            row.amount
+        )
 
     result: dict[str, tuple[float, float]] = {}
     for store, amounts in buckets.items():
-        if len(amounts) >= min_samples:
-            mean = sum(amounts) / len(amounts)
-            std = (sum((x - mean) ** 2 for x in amounts) / len(amounts)) ** 0.5
-            result[store] = (mean, std)
+        if len(amounts) < min_samples:
+            continue
+        mean = sum(amounts) / len(amounts)
+        sd = math.sqrt(sum((x - mean) ** 2 for x in amounts) / len(amounts))
+        if sd > 0:
+            result[store] = (mean, mean + _ANOMALY_SIGMA * sd)
     return result
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Shopping intervals ────────────────────────────────────────────────────────
 
-def _prev_month(year: int, month: int, n: int = 1):
-    """Return (year, month) n period-months before the given period label."""
-    month -= n
-    while month <= 0:
-        month += 12
-        year -= 1
-    return year, month
-
-
-def _trip_interval_stats(
+def trip_interval_stats(
     category: str, lookback_days: int = 120, today: date | None = None
 ) -> dict | None:
-    """
-    For a given spending category calculate:
-      - average days between separate shopping days
-      - average spend per shopping day
-      - last trip date + days since last trip
-    Returns None if not enough data (<2 trips).
+    """Shopping rhythm for one category over the last ``lookback_days``.
 
-    ``today`` is injectable for tests; defaults to the real current date.
+    Purchases on the same day count as one trip.
+
+    Args:
+        category: Category to analyse, e.g. ``"Lebensmittel"``.
+        lookback_days: Size of the window ending yesterday.
+        today: Injectable reference date for tests.
+
+    Returns:
+        Average days between trips, average spend per trip, last trip date,
+        days since the last trip and the number of trips, or ``None`` when
+        the window contains fewer than two trips.
     """
     today = today or date.today()
     cutoff = today - timedelta(days=lookback_days)
 
     rows = (
-        db.session.query(
-            Expense.date,
-            func.sum(Expense.amount).label("total"),
-        )
+        db.session.query(Expense.date, func.sum(Expense.amount).label("total"))
         .filter(
             Expense.category == category,
             Expense.date.isnot(None),
@@ -357,13 +365,12 @@ def _trip_interval_stats(
         .order_by(Expense.date)
         .all()
     )
-
     if len(rows) < 2:
         return None
 
     dates = [r.date for r in rows]
     totals = [float(r.total) for r in rows]
-    gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+    gaps = [(later - earlier).days for earlier, later in zip(dates, dates[1:], strict=False)]
 
     return {
         "avg_interval_days": round(sum(gaps) / len(gaps), 1),
@@ -371,6 +378,27 @@ def _trip_interval_stats(
         "last_trip_date": dates[-1].isoformat(),
         "days_since_last": (today - dates[-1]).days,
         "sample_size": len(dates),
+    }
+
+
+def _with_trip_projection(trip_stats: dict | None, today: date, period_end: date) -> dict | None:
+    """Add the expected number of remaining trips and their spend until ``period_end``.
+
+    Trips are extrapolated from the last trip at the average interval.
+    """
+    if not trip_stats:
+        return None
+    step = timedelta(days=max(1, round(trip_stats["avg_interval_days"])))
+    next_trip = date.fromisoformat(trip_stats["last_trip_date"]) + step
+    remaining = 0
+    while next_trip <= period_end:
+        if next_trip > today:
+            remaining += 1
+        next_trip += step
+    return {
+        **trip_stats,
+        "expected_remaining_trips": remaining,
+        "projected_spend": round(remaining * trip_stats["avg_spend_per_trip"], 2),
     }
 
 
@@ -400,7 +428,7 @@ def _trip_interval_stats(
 #     probability of exceeding the budget.
 #
 # Refunds (negative amounts) are excluded from the purchase model; they still
-# reduce the actual spend-so-far via get_monthly_summary.
+# reduce the actual spend so far via get_monthly_summary.
 
 _PREDICTION_HISTORY_PERIODS = 6     # completed periods used to build the priors
 _FREQ_PRIOR_STRENGTH_DAYS = 45.0    # cap on prior weight (in days) for the purchase rate
@@ -408,7 +436,9 @@ _AMOUNT_PRIOR_STRENGTH = 25.0       # cap on prior weight (in purchases) for the
 _DEFAULT_AMOUNT_CV = 0.6            # assumed coefficient of variation with <2 observed amounts
 _VAGUE_FREQ_SHAPE = 0.5             # Jeffreys-style vague Gamma prior when no history exists
 _VAGUE_FREQ_RATE = 1e-6
+_CI_LEVEL = 90
 _CI_Z_90 = 1.6449                   # two-sided 90% normal quantile
+_TRIP_LOOKBACK_DAYS = 120
 
 
 def _norm_cdf(x: float) -> float:
@@ -440,7 +470,7 @@ def _prediction_inputs(
         ``current_amounts`` lists the positive amounts of the current period
         up to and including ``today``.
     """
-    prior_periods: list[tuple[int, int]] = [
+    prior_periods = [
         _prev_month(year, month, n) for n in range(1, _PREDICTION_HISTORY_PERIODS + 1)
     ]
     earliest_start = period_bounds(*prior_periods[-1])[0]
@@ -461,25 +491,24 @@ def _prediction_inputs(
         by_period.setdefault(period_for_date(row.date), []).append(float(row.amount))
 
     history: list[tuple[int, int, list[float]]] = []
-    for py, pm in prior_periods:
-        amounts = by_period.get((py, pm))
+    for label in prior_periods:
+        amounts = by_period.get(label)
         if amounts:
-            pb_start, pb_end = period_bounds(py, pm)
+            pb_start, pb_end = period_bounds(*label)
             history.append((len(amounts), (pb_end - pb_start).days + 1, amounts))
 
-    current_amounts = by_period.get((year, month), [])
-    return history, current_amounts
+    return history, by_period.get((year, month), [])
 
 
 def get_prediction(year: int, month: int, today: date | None = None) -> dict:
     """Bayesian end-of-period forecast for the current budget period.
 
     Combines a Gamma-Poisson model of purchase frequency with a conjugate
-    Normal model of spend per purchase (see module comment above) into a
+    Normal model of spend per purchase (see the module comment above) into a
     posterior predictive distribution of the end-of-period total. Reports the
     posterior mean, a 90% credible interval, and the probability of exceeding
     the budget. Trip-interval details for groceries and fuel are included for
-    display purposes only.
+    display only and do not enter the forecast.
 
     Args:
         year: Period-year to predict for.
@@ -487,22 +516,17 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
         today: Injectable reference date for tests; defaults to date.today().
 
     Returns:
-        A dict with ``has_prediction`` False for past/future periods, otherwise
-        the forecast fields consumed by the dashboard and the JSON API.
+        ``{"has_prediction": False}`` for any period other than the current
+        one, otherwise the forecast fields consumed by the dashboard and API.
     """
     today = today or date.today()
-    cur_year, cur_month = period_for_date(today)
-
-    if not (year == cur_year and month == cur_month):
+    if (year, month) != period_for_date(today):
         return {"has_prediction": False}
 
     p_start, p_end = period_bounds(year, month)
     days_in_period = (p_end - p_start).days + 1
     days_elapsed = (today - p_start).days + 1
     days_remaining = (p_end - today).days
-
-    if days_remaining < 0:
-        return {"has_prediction": False}
 
     current = get_monthly_summary(year, month)
     budget = current["budget"]
@@ -529,11 +553,7 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
     # ── Spend per purchase: conjugate Normal posterior on μ
     pooled = hist_amounts + cur_amounts
     if pooled:
-        m0 = (
-            sum(hist_amounts) / len(hist_amounts)
-            if hist_amounts
-            else sum(cur_amounts) / n_cur
-        )
+        m0 = sum(hist_amounts) / len(hist_amounts) if hist_amounts else sum(cur_amounts) / n_cur
         sigma2 = _sample_var(pooled) if len(pooled) >= 2 else (m0 * _DEFAULT_AMOUNT_CV) ** 2
         kappa_a = min(float(len(hist_amounts)), _AMOUNT_PRIOR_STRENGTH)
         kappa_n = kappa_a + n_cur
@@ -544,45 +564,15 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
         var_r = exp_n * (sigma2 + var_mu) + var_n * m_post**2
     else:
         # No purchases anywhere: nothing to learn from, forecast flat.
-        m_post = 0.0
-        exp_r = 0.0
-        var_r = 0.0
+        m_post = exp_r = var_r = 0.0
 
     sd_r = math.sqrt(var_r)
     predicted_total = round(current["total"] + exp_r, 2)
-    predicted_remaining = round(budget - predicted_total, 2)
-    ci_low_total = round(current["total"] + max(0.0, exp_r - _CI_Z_90 * sd_r), 2)
-    ci_high_total = round(current["total"] + exp_r + _CI_Z_90 * sd_r, 2)
-
     headroom = budget - current["total"] - exp_r
     if sd_r > 0:
         prob_over = 1.0 - _norm_cdf(headroom / sd_r)
     else:
         prob_over = 1.0 if headroom < 0 else 0.0
-    prob_over_pct = round(prob_over * 100, 1)
-
-    # Posterior expected daily spend going forward (for the dashboard card).
-    avg_daily_rate = round((alpha / beta) * m_post, 2)
-
-    # ── Trip-based details (groceries & fuel) — display only ────────────────
-    grocery_stats = _trip_interval_stats("Lebensmittel", today=today)
-    fuel_stats = _trip_interval_stats("Tanken", today=today)
-
-    def _expected_remaining_trips(trip_stats: dict | None) -> int | None:
-        if not trip_stats:
-            return None
-        interval = trip_stats["avg_interval_days"]
-        last_date = date.fromisoformat(trip_stats["last_trip_date"])
-        count = 0
-        next_trip = last_date + timedelta(days=max(1, round(interval)))
-        while next_trip <= p_end:
-            if next_trip > today:
-                count += 1
-            next_trip += timedelta(days=max(1, round(interval)))
-        return count
-
-    grocery_remaining = _expected_remaining_trips(grocery_stats)
-    fuel_remaining = _expected_remaining_trips(fuel_stats)
 
     return {
         "has_prediction": True,
@@ -590,138 +580,107 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
         "days_elapsed": days_elapsed,
         "days_remaining": days_remaining,
         "days_in_month": days_in_period,
-        "avg_daily_rate": avg_daily_rate,
+        # Posterior expected daily spend going forward
+        "avg_daily_rate": round((alpha / beta) * m_post, 2),
         # Posterior forecast
         "predicted_total": predicted_total,
-        "predicted_remaining": predicted_remaining,
-        "ci_level": 90,
-        "ci_low_total": ci_low_total,
-        "ci_high_total": ci_high_total,
-        "prob_over_budget": prob_over_pct,
+        "predicted_remaining": round(budget - predicted_total, 2),
+        "ci_level": _CI_LEVEL,
+        "ci_low_total": round(current["total"] + max(0.0, exp_r - _CI_Z_90 * sd_r), 2),
+        "ci_high_total": round(current["total"] + exp_r + _CI_Z_90 * sd_r, 2),
+        "prob_over_budget": round(prob_over * 100, 1),
         "will_exceed_budget": prob_over >= 0.5,
         "expected_purchases_remaining": round(exp_n, 1),
         "posterior_mean_per_purchase": round(m_post, 2),
         # Trip details (display only)
-        "grocery": {
-            **grocery_stats,
-            "expected_remaining_trips": grocery_remaining,
-            "projected_spend": round(grocery_remaining * grocery_stats["avg_spend_per_trip"], 2)
-            if grocery_remaining is not None else None,
-        } if grocery_stats else None,
-        "fuel": {
-            **fuel_stats,
-            "expected_remaining_trips": fuel_remaining,
-            "projected_spend": round(fuel_remaining * fuel_stats["avg_spend_per_trip"], 2)
-            if fuel_remaining is not None else None,
-        } if fuel_stats else None,
+        "grocery": _with_trip_projection(
+            trip_interval_stats("Lebensmittel", _TRIP_LOOKBACK_DAYS, today), today, p_end
+        ),
+        "fuel": _with_trip_projection(
+            trip_interval_stats("Tanken", _TRIP_LOOKBACK_DAYS, today), today, p_end
+        ),
     }
 
 
-# ── Advanced Statistics ───────────────────────────────────────────────────────
+# ── Statistics page ───────────────────────────────────────────────────────────
 
 def get_yearly_comparison() -> dict:
-    """
-    Monthly totals per period-year — for a grouped bar chart.
-    Returns { years: [2022, 2023, ...], data: {year: [jan_total, ...]} }
-    """
-    rows = _dated_expense_rows()
+    """Per-period totals arranged by year for a grouped bar chart.
 
+    Returns:
+        ``{"years": [2022, ...], "data": {2022: [period 1 total, ..., period 12 total]}}``
+    """
     lookup: dict[int, dict[int, float]] = {}
-    for row in rows:
-        py, pm = period_for_date(row.date)
-        if py not in lookup:
-            lookup[py] = {}
-        lookup[py][pm] = lookup[py].get(pm, 0.0) + row.amount
+    for (py, pm), total in _period_totals().items():
+        lookup.setdefault(py, {})[pm] = total
 
-    years = sorted(lookup.keys())
+    years = sorted(lookup)
     data = {y: [round(lookup[y].get(m, 0.0), 2) for m in range(1, 13)] for y in years}
     return {"years": years, "data": data}
 
 
 def get_category_trends() -> list[dict]:
-    """
-    Category totals per period for a stacked bar / area chart.
-    Returns [{label, year, month, <category>: total, ...}, ...]
-    """
-    rows = _dated_expense_rows()
+    """Category totals per period for a stacked bar chart.
 
-    points: dict[tuple[int, int], dict] = {}
-    for row in rows:
-        key = period_for_date(row.date)
-        if key not in points:
-            points[key] = {}
-        cat = row.category or "Sonstiges"
-        points[key][cat] = points[key].get(cat, 0.0) + row.amount
+    Returns:
+        ``[{"label", "year", "month", <category>: total, ...}, ...]`` in period order.
+    """
+    points: dict[tuple[int, int], dict[str, float]] = {}
+    for row in _dated_expense_rows():
+        cats = points.setdefault(period_for_date(row.date), {})
+        cat = row.category or DEFAULT_CATEGORY
+        cats[cat] = cats.get(cat, 0.0) + row.amount
 
     result = []
     for (y, m), cats in sorted(points.items()):
-        entry = {"label": f"{m:02d}/{y}", "year": y, "month": m}
+        entry: dict = {"label": f"{m:02d}/{y}", "year": y, "month": m}
         entry.update({k: round(v, 2) for k, v in cats.items()})
         result.append(entry)
     return result
 
 
 def get_top_months(limit: int = 5, best: bool = False) -> list[dict]:
-    """
-    Top periods by budget surplus (best=True) or overspend (best=False).
-    """
-    rows = _dated_expense_rows()
-
-    buckets: dict[tuple[int, int], float] = {}
-    for row in rows:
-        key = period_for_date(row.date)
-        buckets[key] = buckets.get(key, 0.0) + row.amount
-
+    """Periods with the largest budget surplus (``best=True``) or overspend."""
     results: list[dict] = []
-    for (y, m), total in buckets.items():
-        total = round(total, 2)
+    for (y, m), raw_total in _period_totals().items():
+        total = round(raw_total, 2)
         budget = budget_for_month(y, m)
         surplus = round(budget - total, 2)
         results.append({
-            "year": y, "month": m,
+            "year": y,
+            "month": m,
             "label": f"{m:02d}/{y}",
-            "total": total, "budget": budget,
+            "total": total,
+            "budget": budget,
             "surplus": surplus,
             "over_budget": surplus < 0,
         })
-
     results.sort(key=lambda x: x["surplus"], reverse=best)
     return results[:limit]
 
 
 def get_overall_stats() -> dict:
-    """Global headline numbers across all data."""
-    total_spend = db.session.query(func.sum(Expense.amount)).scalar() or 0.0
+    """Headline numbers across all data (undated rows count towards totals only)."""
+    total_spend = float(db.session.query(func.sum(Expense.amount)).scalar() or 0.0)
     total_count = db.session.query(func.count(Expense.id)).scalar() or 0
 
-    rows = _dated_expense_rows()
-
-    buckets: dict[tuple[int, int], float] = {}
-    for row in rows:
-        key = period_for_date(row.date)
-        buckets[key] = buckets.get(key, 0.0) + row.amount
-
-    months_tracked = len(buckets)
-    monthly_totals = list(buckets.values())
-    avg_monthly = round(sum(monthly_totals) / months_tracked, 2) if months_tracked else 0.0
-    max_monthly = round(max(monthly_totals), 2) if monthly_totals else 0.0
-    min_monthly = round(min(monthly_totals), 2) if monthly_totals else 0.0
-
-    avg_per_trip = round(float(total_spend) / total_count, 2) if total_count else 0.0
-
+    period_totals = _period_totals()
+    months_tracked = len(period_totals)
+    monthly = list(period_totals.values())
     over_budget_count = sum(
-        1 for (y, m), total in buckets.items()
-        if total > budget_for_month(y, m)
+        1 for (y, m), total in period_totals.items() if total > budget_for_month(y, m)
     )
 
     return {
-        "total_spend": round(float(total_spend), 2),
+        "total_spend": round(total_spend, 2),
         "total_count": total_count,
         "months_tracked": months_tracked,
-        "avg_monthly": avg_monthly,
-        "max_monthly": max_monthly,
-        "min_monthly": min_monthly,
-        "avg_per_trip": avg_per_trip,
+        "avg_monthly": round(sum(monthly) / months_tracked, 2) if months_tracked else 0.0,
+        "max_monthly": round(max(monthly), 2) if monthly else 0.0,
+        "min_monthly": round(min(monthly), 2) if monthly else 0.0,
+        "avg_per_trip": round(total_spend / total_count, 2) if total_count else 0.0,
         "over_budget_count": over_budget_count,
-        "on_budget_pct": round((1 - over_budget_count / months_tracked) * 100, 1) if months_tracked else 0,
+        "on_budget_pct": (
+            round((1 - over_budget_count / months_tracked) * 100, 1) if months_tracked else 0
+        ),
     }

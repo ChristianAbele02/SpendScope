@@ -195,11 +195,11 @@
 
 {% block scripts %}
 <script>
-  fetch('/api/yearly-comparison')
+  fetch({{ url_for('api.yearly_comparison') | tojson }})
     .then(r => r.json())
     .then(data => initYoYChart('yoyChart', data));
 
-  fetch('/api/category-trends')
+  fetch({{ url_for('api.category_trends') | tojson }})
     .then(r => r.json())
     .then(data => initCategoryTrendChart('categoryTrendChart', data));
 </script>

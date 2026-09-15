@@ -302,23 +302,17 @@
 
 {% block scripts %}
 <script>
-  const SELECTED_YEAR = {{ selected_year }};
-  const SELECTED_MONTH = {{ selected_month }};
-
-  const catData = {{ categories | tojson }};
-  initCategoryChart('categoryChart', catData);
-
-  const storeData = {{ top_stores | tojson }};
-  initStoreChart('storeChart', storeData);
+  initCategoryChart('categoryChart', {{ categories | tojson }});
+  initStoreChart('storeChart', {{ top_stores | tojson }});
 
   const trendYearSel = document.getElementById('trendYearFilter');
   function loadTrendChart(year) {
     const params = year ? `?years=${year}` : '';
-    fetch('/api/monthly-trends' + params)
+    fetch({{ url_for('api.monthly_trends') | tojson }} + params)
       .then(r => r.json())
       .then(data => initTrendChart('trendChart', data));
   }
-  loadTrendChart(SELECTED_YEAR);
+  loadTrendChart({{ selected_year }});
   trendYearSel.addEventListener('change', () => loadTrendChart(trendYearSel.value));
 </script>
 {% endblock %}

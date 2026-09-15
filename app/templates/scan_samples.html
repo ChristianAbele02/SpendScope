@@ -23,7 +23,7 @@
             <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span></label>
             <input type="text" name="store" required list="store-list"
                    class="form-control bg-dark text-light border-secondary"
-                   placeholder="z.B. Müller, Aldi ...">
+                   placeholder="{{ t('store_ph') }}">
             <datalist id="store-list">
               {% for st in all_stores %}<option value="{{ st }}">{% endfor %}
               <option value="Müller"><option value="Aldi"><option value="Lidl">
@@ -48,12 +48,7 @@
         </form>
 
         <div class="mt-4 text-muted small">
-          <i class="fa-solid fa-circle-info me-1"></i>
-          {% if lang == 'de' %}
-            Jeder hochgeladene Beleg wird per OCR analysiert. Das System lernt daraus, welche Keywords (z.B. <code>SUMME</code>, <code>GESAMT</code>) für diesen Laden den Gesamtbetrag markieren — und verbessert damit automatisch zukünftige Scans.
-          {% else %}
-            Each uploaded receipt is analysed by OCR. The system learns which keyword (e.g. <code>SUMME</code>, <code>GESAMT</code>) marks the total for that store — automatically improving future scans.
-          {% endif %}
+          <i class="fa-solid fa-circle-info me-1"></i>{{ t('samples_info') | safe }}
         </div>
       </div>
     </div>
@@ -82,7 +77,7 @@
               {% for p in profiles %}
               <tr>
                 <td class="ps-3">
-                  <span class="badge-category" data-category="{{ p.store }}">{{ p.store }}</span>
+                  <span class="badge-category">{{ p.store }}</span>
                 </td>
                 <td class="text-muted">{{ p.sample_count }}</td>
                 <td>
@@ -142,8 +137,8 @@
     <div class="card bg-dark border-secondary h-100">
 
       <!-- Thumbnail -->
-      <a href="{{ url_for('scan.sample_image', id=s.id) }}" target="_blank" title="Vollbild">
-        <img src="{{ url_for('scan.sample_image', id=s.id) }}"
+      <a href="{{ url_for('scan.sample_image', sample_id=s.id) }}" target="_blank" title="{{ t('full_size') }}">
+        <img src="{{ url_for('scan.sample_image', sample_id=s.id) }}"
              class="card-img-top"
              style="height:160px; object-fit:cover; border-bottom:1px solid #495057;"
              alt="{{ s.store }}">
@@ -152,7 +147,7 @@
       <div class="card-body p-2">
         <!-- Store + date -->
         <div class="d-flex justify-content-between align-items-center mb-2">
-          <span class="badge-category" data-category="{{ s.store }}">{{ s.store }}</span>
+          <span class="badge-category">{{ s.store }}</span>
           <span class="text-muted" style="font-size:0.68rem">{{ s.uploaded_at.strftime('%d.%m.%y') }}</span>
         </div>
 
@@ -168,7 +163,7 @@
             <div class="text-muted" style="font-size:0.7rem">
               <code>{{ s.total_keyword_found }}</code>
               {% if s.amount_on_next_line %}
-                <i class="fa-solid fa-arrow-down ms-1 text-secondary" title="next line"></i>
+                <i class="fa-solid fa-arrow-down ms-1 text-secondary" title="{{ t('samples_next_line') }}"></i>
               {% endif %}
             </div>
           {% endif %}
@@ -198,10 +193,10 @@
       </div>
 
       <div class="card-footer p-2 border-secondary">
-        <form method="post" action="{{ url_for('scan.delete_sample', id=s.id) }}"
+        <form method="post" action="{{ url_for('scan.delete_sample', sample_id=s.id) }}"
               onsubmit="return confirm('{{ t('really_delete') }}')" class="d-grid">
           <button class="btn btn-sm btn-outline-danger py-0" style="font-size:0.75rem">
-            <i class="fa-solid fa-trash-can me-1"></i>{{ t('samples_delete') }}
+            <i class="fa-solid fa-trash-can me-1"></i>{{ t('delete') }}
           </button>
         </form>
       </div>
