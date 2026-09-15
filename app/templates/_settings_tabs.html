@@ -1,0 +1,16 @@
+{# Tab bar shared by the settings pages. Set `active_tab` before including. #}
+{%- set tabs = [
+  ('budget', 'settings.budget', 'fa-wallet', 'nav_settings_budget'),
+  ('limits', 'settings.category_budgets', 'fa-tags', 'nav_settings_limits'),
+  ('aliases', 'settings.store_aliases', 'fa-code-merge', 'nav_settings_aliases'),
+] -%}
+<ul class="nav nav-tabs border-secondary mb-4">
+  {% for key, endpoint, icon, label in tabs %}
+  <li class="nav-item">
+    <a class="nav-link {% if key == active_tab %}active{% else %}text-secondary{% endif %}"
+       href="{{ url_for(endpoint) }}">
+      <i class="fa-solid {{ icon }} me-1"></i>{{ t(label) }}
+    </a>
+  </li>
+  {% endfor %}
+</ul>

@@ -7,26 +7,26 @@ Chart.defaults.borderColor = "rgba(255,255,255,0.06)";
 Chart.defaults.font.family = "system-ui, sans-serif";
 Chart.defaults.font.size = 11;
 
-// Falls back to German if not injected by the template
-const MONTH_LABELS = (window.MONTH_LABELS_SHORT && window.MONTH_LABELS_SHORT.length > 1)
-  ? window.MONTH_LABELS_SHORT
-  : ["", "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+// Month names, category palette (app/parser.py) and labels are injected by base.html.
+const MONTH_LABELS = window.MONTH_LABELS_SHORT;
+const CATEGORY_COLORS = window.CATEGORY_COLORS;
+const CHART_LABELS = window.CHART_LABELS;
 
-// Canonical palette lives in app/parser.py and is injected via base.html.
-const CATEGORY_COLORS = window.CATEGORY_COLORS || {
-  "Lebensmittel": "#4CAF50",
-  "Tanken":        "#FF9800",
-  "Drogerie":      "#E91E63",
-  "Einrichtung":   "#9C27B0",
-  "Ausgehen":      "#F44336",
-  "Online":        "#2196F3",
-  "Baumarkt":      "#795548",
-  "Auto":          "#607D8B",
-  "Sonstiges":     "#9E9E9E",
-};
-
-// Localised chart labels injected via base.html; German fallback for safety.
-const CHART_LABELS = window.CHART_LABELS || { spending: "Ausgaben", budget: "Budget", total: "Gesamt" };
+// Locale-aware euro formatting, matching the server-side |eur filter.
+const _eurFormatters = {};
+function fmtEur(value, decimals = 2) {
+  const key = String(decimals);
+  if (!_eurFormatters[key]) {
+    _eurFormatters[key] = new Intl.NumberFormat(window.APP_LANG === "en" ? "en-IE" : "de-DE", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  }
+  return _eurFormatters[key].format(value);
+}
+const axisEur = v => fmtEur(v, 0);
 
 // Year palette — distinct colours for multi-year charts
 const YEAR_COLORS = [
@@ -92,14 +92,14 @@ function initTrendChart(canvasId, data) {
         legend: { position: "top", labels: { boxWidth: 12 } },
         tooltip: {
           callbacks: {
-            label: ctx => ` €${ctx.parsed.y.toFixed(2)}`,
+            label: ctx => ` ${ctx.dataset.label}: ${fmtEur(ctx.parsed.y)}`,
           },
         },
       },
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { callback: v => `€${v}` },
+          ticks: { callback: axisEur },
           grid: { color: "rgba(255,255,255,0.05)" },
         },
         x: {
@@ -142,7 +142,7 @@ function initCategoryChart(canvasId, data) {
         },
         tooltip: {
           callbacks: {
-            label: ctx => ` €${ctx.parsed.toFixed(2)}`,
+            label: ctx => ` ${fmtEur(ctx.parsed)}`,
           },
         },
       },
@@ -180,13 +180,13 @@ function initStoreChart(canvasId, data) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          callbacks: { label: ctx => ` €${ctx.parsed.x.toFixed(2)}` },
+          callbacks: { label: ctx => ` ${fmtEur(ctx.parsed.x)}` },
         },
       },
       scales: {
         x: {
           beginAtZero: true,
-          ticks: { callback: v => `€${v}` },
+          ticks: { callback: axisEur },
           grid: { color: "rgba(255,255,255,0.05)" },
         },
         y: { grid: { display: false } },
@@ -224,13 +224,13 @@ function initYoYChart(canvasId, data) {
       plugins: {
         legend: { position: "top", labels: { boxWidth: 12 } },
         tooltip: {
-          callbacks: { label: ctx => ` ${ctx.dataset.label}: €${ctx.parsed.y.toFixed(2)}` },
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtEur(ctx.parsed.y)}` },
         },
       },
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { callback: v => `€${v}` },
+          ticks: { callback: axisEur },
           grid: { color: "rgba(255,255,255,0.05)" },
         },
         x: { grid: { display: false } },
@@ -277,11 +277,11 @@ function initCategoryTrendChart(canvasId, data) {
         tooltip: {
           callbacks: {
             label: ctx => ctx.parsed.y > 0
-              ? ` ${ctx.dataset.label}: €${ctx.parsed.y.toFixed(2)}`
+              ? ` ${ctx.dataset.label}: ${fmtEur(ctx.parsed.y)}`
               : null,
             footer: items => {
               const total = items.reduce((s, i) => s + i.parsed.y, 0);
-              return `${CHART_LABELS.total}: €${total.toFixed(2)}`;
+              return `${CHART_LABELS.total}: ${fmtEur(total)}`;
             },
           },
           filter: item => item.parsed.y > 0,
@@ -291,7 +291,7 @@ function initCategoryTrendChart(canvasId, data) {
         y: {
           stacked: true,
           beginAtZero: true,
-          ticks: { callback: v => `€${v}` },
+          ticks: { callback: axisEur },
           grid: { color: "rgba(255,255,255,0.05)" },
         },
         x: {

@@ -117,8 +117,9 @@
 
 <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
-<!-- Inject server-side data so charts.js stays free of hard-coded strings/colours -->
+<!-- Server-side data for charts.js, so it holds no hard-coded strings or colours -->
 <script>
+  window.APP_LANG = {{ lang | tojson }};
   window.MONTH_LABELS_SHORT = {{ month_names_short | tojson }};
   window.CATEGORY_COLORS = {{ category_colors | tojson }};
   window.CHART_LABELS = {

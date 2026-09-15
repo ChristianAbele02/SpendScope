@@ -211,11 +211,13 @@ def extract_with_claude(image_bytes: bytes, client=None) -> tuple[dict | None, s
         the caller should fall back to the Tesseract backend.
     """
     import anthropic
+    from PIL import Image
 
     model = current_app.config.get("RECEIPT_EXTRACTION_MODEL", "claude-opus-4-8")
     try:
         prepared = _prepare_image(image_bytes)
-    except Exception as exc:  # Pillow raises many types on corrupt uploads
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+        # OSError includes PIL.UnidentifiedImageError for non-image uploads.
         return None, f"Image preprocessing failed: {exc}"
 
     if client is None:

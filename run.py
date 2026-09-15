@@ -1,3 +1,4 @@
+"""Entry point: ``python run.py`` starts the server, ``flask --app run import-csv`` imports."""
 import click
 
 from app import create_app
@@ -13,16 +14,15 @@ app = create_app()
     default=False,
     help="Delete all existing expenses before importing (destructive).",
 )
-def import_csv_command(path, replace):
-    """Import expenses from a CSV file.
+def import_csv_command(path: str | None, replace: bool) -> None:
+    """Import expenses from a CSV file (default: CSV_PATH from config).
 
-    By default new rows are appended and duplicates are skipped. Pass --replace
-    to wipe the table first.
+    New rows are appended and duplicates skipped unless --replace is given.
+    The CSV file itself is only read.
     """
     from app.parser import import_csv
-    from config import Config
 
-    csv_path = path or Config.CSV_PATH
+    csv_path = path or app.config["CSV_PATH"]
     mode = "replace" if replace else "append (de-duplicating)"
     click.echo(f"Importing from {csv_path} [{mode}] ...")
     result = import_csv(csv_path, clear_existing=replace)
@@ -37,6 +37,6 @@ def import_csv_command(path, replace):
 
 
 if __name__ == "__main__":
-    # Debug/reloader is off unless FLASK_DEBUG=1; the app binds 0.0.0.0 for
-    # phone scanning, so the debugger must not be exposed on a LAN by default.
+    # Binds 0.0.0.0 so phones on the LAN can reach /scan; debug stays off
+    # unless FLASK_DEBUG=1 because the debugger would be exposed too.
     app.run(debug=app.config.get("DEBUG", False), host="0.0.0.0", port=5000)

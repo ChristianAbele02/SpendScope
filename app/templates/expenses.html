@@ -160,7 +160,7 @@
         {% for e in expenses %}
         <tr>
           <td class="ps-3 text-muted">
-            {{ e.date.strftime('%d.%m.%Y') if e.date else ('<span class="text-danger">' + t('no_date') + '</span>')|safe }}
+            {% if e.date %}{{ e.date.strftime('%d.%m.%Y') }}{% else %}<span class="text-danger">{{ t('no_date') }}</span>{% endif %}
           </td>
           <td>
             {%- set display = alias_map.get(e.display_store, e.display_store) -%}
@@ -168,13 +168,11 @@
             {% if e.store_detail and e.store != e.store_detail and display == e.display_store %}
               <span class="text-muted small">({{ e.store }})</span>
             {% endif %}
-            {%- if e.amount > 0 and display in anomaly_map -%}
-              {%- set thr = anomaly_map[display] -%}
-              {%- if thr[1] > 0 and e.amount > thr[0] + 2 * thr[1] -%}
-                <span class="badge bg-warning text-dark ms-1"
-                      style="font-size:0.6rem; vertical-align:middle; cursor:default"
-                      title="{{ t('anomaly_hint') }} (Ø {{ thr[0]|eur(0) }})">!</span>
-              {%- endif -%}
+            {#- anomaly_map[store] = (mean, threshold), see stats.get_store_anomaly_thresholds -#}
+            {%- if display in anomaly_map and e.amount > anomaly_map[display][1] -%}
+              <span class="badge bg-warning text-dark ms-1"
+                    style="font-size:0.6rem; vertical-align:middle; cursor:default"
+                    title="{{ t('anomaly_hint') }} (Ø {{ anomaly_map[display][0]|eur(0) }})">!</span>
             {%- endif -%}
           </td>
           <td>
@@ -186,7 +184,7 @@
           <td class="text-end pe-3">
             <button class="btn btn-sm btn-outline-info py-0 px-1 me-1 edit-btn"
                     aria-label="{{ t('edit') }}" title="{{ t('edit') }}"
-                    data-id="{{ e.id }}"
+                    data-action="{{ url_for('main.edit_expense', expense_id=e.id) }}"
                     data-date="{{ e.date.isoformat() if e.date else '' }}"
                     data-store="{{ e.store }}"
                     data-detail="{{ e.store_detail or '' }}"
@@ -283,6 +281,9 @@
               <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span></label>
               <input type="text" id="edit-store" name="store" required list="store-suggestions"
                      class="form-control bg-dark text-light border-secondary">
+              <datalist id="store-suggestions">
+                {% for st in all_stores %}<option value="{{ st }}">{% endfor %}
+              </datalist>
             </div>
             <div class="col-12">
               <label class="form-label text-muted small">{{ t('detail_optional') }}</label>
@@ -325,21 +326,20 @@
   </div>
 </div>
 
+{% endblock %}
+
 {% block scripts %}
 <script>
+// Fill the edit modal from the data-* attributes of the clicked row button.
+const EDIT_FIELDS = { date: 'edit-date', store: 'edit-store', detail: 'edit-detail',
+                      amount: 'edit-amount', notes: 'edit-notes', category: 'edit-category' };
 document.querySelectorAll('.edit-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    const id = btn.dataset.id;
-    document.getElementById('editForm').action = `/expense/${id}/edit`;
-    document.getElementById('edit-date').value     = btn.dataset.date     || '';
-    document.getElementById('edit-store').value    = btn.dataset.store    || '';
-    document.getElementById('edit-detail').value   = btn.dataset.detail   || '';
-    document.getElementById('edit-amount').value   = btn.dataset.amount   || '';
-    document.getElementById('edit-notes').value    = btn.dataset.notes    || '';
-    const catSel = document.getElementById('edit-category');
-    catSel.value = btn.dataset.category || '';
+    document.getElementById('editForm').action = btn.dataset.action;
+    for (const [key, inputId] of Object.entries(EDIT_FIELDS)) {
+      document.getElementById(inputId).value = btn.dataset[key] || '';
+    }
   });
 });
 </script>
-{% endblock %}
 {% endblock %}
