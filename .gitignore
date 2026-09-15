@@ -11,13 +11,23 @@ env/
 dist/
 build/
 
+# Tool caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
 # Database and local data files (personal data – do not commit)
+expenses_raw.csv
 data/*.db
 data/*.sqlite
 data/receipt_samples/
+data/backups/
 
-# Claude context file
+# Claude context and local settings
 CLAUDE.md
+.claude/
 
 # IDE
 .vscode/
