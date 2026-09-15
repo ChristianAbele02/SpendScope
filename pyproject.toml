@@ -81,4 +81,7 @@ disable_error_code = ["assignment", "attr-defined"]
 # ── pytest ─────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# config.py is a top-level module, not part of the installed package; make it
+# importable when tests run via the plain `pytest` command (as in CI).
+pythonpath = ["."]
 addopts = "-q"
