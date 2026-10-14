@@ -215,7 +215,7 @@ def expenses():
         total_amount=round(total_amount, 2),
         bulk_prompt=bulk_prompt,
         recent_logs=recent_logs,
-        anomaly_map=s.get_store_anomaly_thresholds(),
+        anomalies=s.get_expense_anomalies(pagination.items),
     )
 
 

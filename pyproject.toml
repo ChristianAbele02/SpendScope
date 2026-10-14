@@ -19,6 +19,8 @@ dependencies = [
     "qrcode[pil]>=7.4.2",
     "Pillow>=10.0.0",
     "pytesseract>=0.3.10",
+    "numpy>=1.26",   # Monte Carlo forecast (app/stats.py)
+    "scipy>=1.11",   # incomplete beta function for anomaly tail probabilities
 ]
 
 [project.optional-dependencies]
@@ -31,6 +33,11 @@ dev = [
 # falls back to Tesseract OCR when this is not installed.
 llm = [
     "anthropic>=0.69.0",
+]
+# Native desktop window for `python run.py` (Edge WebView2 on Windows);
+# without it run.py falls back to server-only mode.
+desktop = [
+    "pywebview>=5.0",
 ]
 
 [tool.setuptools]
@@ -55,7 +62,9 @@ ignore = ["E501"]
 
 # ── mypy (type checking) ───────────────────────────────────────────────────────
 [tool.mypy]
-python_version = "3.11"
+# No python_version pin: mypy checks against the running interpreter (CI covers
+# 3.11 and 3.12). Pinning 3.11 breaks on numpy>=2.5, whose stubs use 3.12 syntax;
+# ruff's target-version still keeps the source 3.11-compatible.
 files = ["app", "config.py", "run.py"]
 ignore_missing_imports = true   # Flask-SQLAlchemy / Flask-Migrate ship no stubs
 warn_redundant_casts = true
