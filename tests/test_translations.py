@@ -1,7 +1,7 @@
 """Tests for translations and the currency filter."""
 from flask import session
 
-from app.translations import TRANSLATIONS, format_eur, t
+from app.translations import TRANSLATIONS, format_eur, format_pct, t
 
 
 def test_placeholders_are_filled_in_order_and_braces_in_args_survive(app):
@@ -35,3 +35,14 @@ def test_format_eur_handles_non_numeric(app):
     with app.test_request_context():
         session["lang"] = "de"
         assert format_eur(None) == "None"
+
+
+def test_format_pct_locales(app):
+    with app.test_request_context():
+        session["lang"] = "de"
+        assert format_pct(0.4) == "0,4 %"
+        assert format_pct(0.02) == "<0,1 %"
+        session["lang"] = "en"
+        assert format_pct(12.345) == "12.3%"
+        assert format_pct(0.0) == "0.0%"
+        assert format_pct(None) == "None"

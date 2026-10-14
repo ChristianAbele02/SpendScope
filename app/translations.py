@@ -219,6 +219,7 @@ TRANSLATIONS: dict[str, dict] = {
 
         # Anomaly
         "anomaly_hint":         "Ungewöhnlich hoch für diesen Laden",
+        "anomaly_detail":       "nur {} der Einkäufe hier sind so teuer (Ø {})",
 
         # Receipt sample database
         "nav_samples":         "Belegdatenbank",
@@ -487,6 +488,7 @@ TRANSLATIONS: dict[str, dict] = {
 
         # Anomaly
         "anomaly_hint":         "Unusually high for this store",
+        "anomaly_detail":       "only {} of purchases here cost this much (avg {})",
 
         # Receipt sample database
         "nav_samples":         "Receipt DB",
@@ -573,6 +575,25 @@ def format_eur(value, decimals: int = 2) -> str:
         grouped = grouped.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
         return f"{sign}{grouped} €"
     return f"{sign}€{grouped}"
+
+
+def format_pct(value, decimals: int = 1) -> str:
+    """Format a percentage with the locale's decimal separator.
+
+    German (de): ``0,4 %``; English (en): ``0.4%``. Values that would round to
+    zero are shown as ``<0,1 %`` / ``<0.1%`` instead of a misleading 0.
+    Non-numeric input is returned unchanged so the filter never raises.
+    """
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    smallest = 10.0**-decimals
+    prefix = "<" if 0 < num < smallest else ""
+    text = f"{max(num, smallest) if prefix else num:.{decimals}f}"
+    if get_lang() == "de":
+        return f"{prefix}{text.replace('.', ',')} %"
+    return f"{prefix}{text}%"
 
 
 def t(key: str, *args) -> str:

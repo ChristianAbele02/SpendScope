@@ -168,11 +168,12 @@
             {% if e.store_detail and e.store != e.store_detail and display == e.display_store %}
               <span class="text-muted small">({{ e.store }})</span>
             {% endif %}
-            {#- anomaly_map[store] = (mean, threshold), see stats.get_store_anomaly_thresholds -#}
-            {%- if display in anomaly_map and e.amount > anomaly_map[display][1] -%}
+            {#- anomalies[id] = {tail_pct, typical}, see stats.get_expense_anomalies -#}
+            {%- if e.id in anomalies -%}
+              {%- set an = anomalies[e.id] -%}
               <span class="badge bg-warning text-dark ms-1"
                     style="font-size:0.6rem; vertical-align:middle; cursor:default"
-                    title="{{ t('anomaly_hint') }} (Ø {{ anomaly_map[display][0]|eur(0) }})">!</span>
+                    title="{{ t('anomaly_hint') }}: {{ t('anomaly_detail', an.tail_pct|pct, an.typical|eur(0)) }}">!</span>
             {%- endif -%}
           </td>
           <td>

@@ -43,7 +43,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     from app.routes.main import main
     from app.routes.scan import scan
     from app.routes.settings import settings
-    from app.translations import TRANSLATIONS, format_eur, get_lang, t
+    from app.translations import TRANSLATIONS, format_eur, format_pct, get_lang, t
 
     app.register_blueprint(main)
     app.register_blueprint(api, url_prefix="/api")
@@ -67,6 +67,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
 
     # Locale-aware currency formatting: {{ amount|eur }} or {{ amount|eur(0) }}.
     app.add_template_filter(format_eur, name="eur")
+    app.add_template_filter(format_pct, name="pct")
 
     with app.app_context():
         os.makedirs(DATA_DIR, exist_ok=True)
