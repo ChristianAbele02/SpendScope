@@ -25,6 +25,7 @@ from urllib.parse import urlencode
 from flask import (
     Blueprint,
     Response,
+    abort,
     current_app,
     flash,
     jsonify,
@@ -569,7 +570,7 @@ def sample_image(sample_id: int) -> ResponseReturnValue:
     sample = db.get_or_404(ReceiptSample, sample_id)
     img_path = os.path.join(_samples_dir(), sample.image_filename)
     if not os.path.isfile(img_path):
-        return "Image not found", 404
+        abort(404)
     return send_file(img_path)
 
 

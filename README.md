@@ -345,11 +345,13 @@ pip install -e . --no-deps
 ruff check .        # lint
 mypy                # type check
 pytest              # tests (never touch data/ or expenses_raw.csv)
+pytest --cov        # tests with coverage report (fails below 90%)
 python scripts\backtest_forecast.py   # score the forecast on past periods (read-only)
 ```
 
-GitHub Actions runs ruff, mypy and pytest on Python 3.11 and 3.12 with the pinned dev lock for
-every push and pull request. The backtest needs a real database, so it runs locally only.
+GitHub Actions runs ruff, mypy (every function must be annotated) and pytest with branch coverage
+on Python 3.11 and 3.12 with the pinned dev lock for every push and pull request; the run fails
+below 90% coverage and shows the coverage table in its summary. The backtest needs a real database, so it runs locally only.
 Dependency updates are done manually by regenerating the lock files (below).
 
 Messages and errors appear as popups (Bootstrap toasts): `flash()` on the server, `showToast()`

@@ -35,5 +35,9 @@ jobs:
       - name: Type check (mypy)
         run: mypy
 
-      - name: Tests (pytest)
-        run: pytest
+      - name: Tests with coverage (pytest, fails below 90%)
+        run: pytest --cov
+
+      - name: Coverage summary
+        if: always()
+        run: coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"

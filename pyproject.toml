@@ -28,6 +28,7 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0",
     "pytest>=8.0.0",
+    "pytest-cov>=5.0",
 ]
 # Claude vision receipt extraction (app/extraction.py); optional — the scanner
 # falls back to Tesseract OCR when this is not installed.
@@ -98,3 +99,17 @@ testpaths = ["tests"]
 # importable when tests run via the plain `pytest` command (as in CI).
 pythonpath = ["."]
 addopts = "-q"
+
+# ── Coverage (pytest --cov; CI fails below fail_under) ─────────────────────────
+[tool.coverage.run]
+source = ["app", "config"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

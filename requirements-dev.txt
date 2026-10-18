@@ -31,6 +31,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   click
     #   pytest
     #   qrcode
+coverage==7.16.2
+    # via pytest-cov
 distro==1.9.0
     # via anthropic
 docstring-parser==0.18.0
@@ -101,7 +103,9 @@ pillow==12.1.1
     #   pytesseract
     #   qrcode
 pluggy==1.6.0
-    # via pytest
+    # via
+    #   pytest
+    #   pytest-cov
 proxy-tools==0.1.0
     # via pywebview
 pycparser==3.11 ; implementation_name != 'PyPy' and sys_platform == 'win32'
@@ -138,6 +142,10 @@ pyobjc-framework-webkit==12.2.2 ; sys_platform == 'darwin'
 pytesseract==0.3.13
     # via spendscope (pyproject.toml)
 pytest==9.0.3
+    # via
+    #   spendscope (pyproject.toml)
+    #   pytest-cov
+pytest-cov==7.1.0
     # via spendscope (pyproject.toml)
 pythonnet==3.2.1 ; sys_platform == 'win32'
     # via pywebview
@@ -159,6 +167,8 @@ sqlalchemy==2.0.48
     # via
     #   alembic
     #   flask-sqlalchemy
+tomli==2.5.0 ; python_full_version <= '3.11'
+    # via coverage
 typing-extensions==4.15.0
     # via
     #   alembic
