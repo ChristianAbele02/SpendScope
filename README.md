@@ -35,6 +35,7 @@ money spent, budget left and the probability of going over.
 | 📱 **Receipt scanning** | Scan a QR code on the PC, photograph the receipt on your phone, and get store, amount and date extracted by Claude vision or local Tesseract OCR |
 | 🧾 **Expense list** | Filters (year, month, category, store, search), inline editing, bulk re-categorisation, undo for edits and deletions, Bayesian anomaly badges, CSV/JSON export |
 | 📈 **Statistics** | Multi-year trends, year-over-year bars, stacked categories over time, best and worst months, shopping intervals for groceries and fuel |
+| 💾 **Backups** | Automatic backups on a schedule, manual backups, download and one-click restore, configurable interval, retention and folder |
 | 🎯 **Budgets** | Budget rules with effective dates, per-category monthly limits and a configurable period start day (e.g. payday) |
 | 🏷️ **Auto-categorisation** | Store names mapped to categories by keyword; override per entry or in bulk |
 | 🔗 **Store aliases** | Merge spellings ("REWE Markt" → "Rewe") for display and statistics without rewriting stored data |
@@ -78,6 +79,23 @@ network side completely.
 > The database (`data/expenses.db`) is created on first start, migrated to the latest schema on every
 > start and seeded with the default budget rules. Before any schema change touches an existing
 > database, a copy is saved to `data/backups/`.
+
+### Backups
+
+Open **Settings → Backups** to manage them.
+
+- **Automatic:** while SpendScope is running it makes a backup when the app starts and then
+  whenever the interval has passed (every 6 hours, daily, every 3 days or weekly; default
+  daily). Only the newest automatic backups are kept (default 14).
+- **Manual:** **Back up now** (or `flask --app run backup` in a terminal). Manual backups and the
+  safety copies made before updates and restores are never deleted automatically.
+- **Restore:** replaces the database with the chosen backup. The current state is saved first,
+  so a restore can itself be undone.
+- **Folder:** `data/backups/` by default. Pointing it at a synced folder (OneDrive, Nextcloud,
+  ...) also protects against losing the disk.
+
+Backups are full SQLite copies made with SQLite's backup API, so they are consistent even while
+the app writes.
 
 ### Importing historical data
 
@@ -246,10 +264,11 @@ SpendScope/
 ├── app/
 │   ├── __init__.py         # App factory, template globals
 │   ├── models.py           # Expense, BudgetPeriod, ChangeLog, CategoryBudget,
-│   │                       #   StoreAlias, ReceiptSample, StoreProfile
+│   │                       #   StoreAlias, ReceiptSample, StoreProfile, AppSetting
 │   ├── parser.py           # Category keyword map, CSV import
 │   ├── stats.py            # Periods, aggregations, forecast, anomaly detection
 │   ├── extraction.py       # Claude vision receipt backend
+│   ├── backup.py           # Automatic/manual backups, restore, backup settings
 │   ├── forms.py            # Form validation, safe redirects
 │   ├── security.py         # Host check, phone pairing, CSRF tokens
 │   ├── translations.py     # DE/EN strings, t(), |eur and |pct filters
@@ -324,8 +343,9 @@ pip install -r requirements-dev.txt   # then run the checks above
 ## 🔒 Privacy and safety notes
 
 - All data stays on your machine. Receipt photos leave it only when the Claude backend is enabled.
-- `data/` (database, receipt images, automatic backups) and `expenses_raw.csv` are git-ignored.
-  Back up `data/expenses.db` regularly; it is a single file.
+- `data/` (database, receipt images, backups, session key) and `expenses_raw.csv` are git-ignored.
+  Backups in `data/backups/` sit on the same disk as the database, so set a synced or external
+  backup folder if the data matters to you.
 - There are no user accounts. Instead, [`app/security.py`](app/security.py) runs three checks on
   every request:
   - **Pairing.** Only the PC itself and phones paired through the QR code get in; the pairing

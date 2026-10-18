@@ -158,3 +158,12 @@ class BudgetPeriod(db.Model):
             "monthly_budget": self.monthly_budget,
             "note": self.note or "",
         }
+
+
+class AppSetting(db.Model):
+    """Key/value application setting (e.g. ``backup.keep``), editable in the UI."""
+
+    __tablename__ = "app_settings"
+
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.String(1000), nullable=False)

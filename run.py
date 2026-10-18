@@ -8,6 +8,7 @@
 """
 import argparse
 import logging
+import os
 import socket
 import threading
 import time
@@ -65,8 +66,32 @@ def _host() -> str:
     return LAN_HOST if app.config["LAN_ACCESS"] else LOCAL_HOST
 
 
+@app.cli.command("backup")
+def backup_command() -> None:
+    """Make a manual database backup (same as Settings > Backups > Back up now)."""
+    from app.backup import REASON_MANUAL, BackupError, create_backup
+
+    try:
+        info = create_backup(REASON_MANUAL)
+    except BackupError as e:
+        click.echo(f"Backup failed: {e}", err=True)
+        raise SystemExit(1) from e
+    click.echo(f"Backup written to {info.path}")
+
+
+def _start_background_jobs() -> None:
+    """Start the automatic backup scheduler (first check runs immediately)."""
+    from app.backup import start_scheduler
+
+    # With FLASK_DEBUG=1 the reloader runs the app twice; only the child serves.
+    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return
+    start_scheduler(app)
+
+
 def run_server() -> None:
     """Run the Flask server in the foreground (browser mode)."""
+    _start_background_jobs()
     # Debug stays off unless FLASK_DEBUG=1 because the debugger would be
     # exposed to the whole LAN.
     app.run(debug=app.config.get("DEBUG", False), host=_host(), port=PORT)
@@ -110,6 +135,7 @@ def run_desktop() -> None:
         run_server()
         return
 
+    _start_background_jobs()
     # The reloader only works in the main thread, so it is always off here.
     server = threading.Thread(
         target=app.run,

@@ -2,9 +2,7 @@
 import logging
 import os
 import secrets
-import sqlite3
-from contextlib import closing
-from datetime import date, datetime
+from datetime import date
 
 import sqlalchemy as sa
 from flask import Flask
@@ -119,6 +117,8 @@ def _upgrade_database() -> bool:
     from alembic.script import ScriptDirectory
     from flask_migrate import stamp, upgrade
 
+    from app import backup
+
     if not os.path.isdir(MIGRATIONS_DIR):
         return False
     script = ScriptDirectory.from_config(migrate.get_config())
@@ -133,29 +133,15 @@ def _upgrade_database() -> bool:
     if current == head:
         return True
 
-    if tables - {"alembic_version"}:
-        _backup_sqlite_database(reason=f"before-{head}")
+    if tables - {"alembic_version"} and backup.database_path():
+        # The settings table may not exist yet, so always use the default folder.
+        backup.create_backup(f"{backup.MIGRATION_PREFIX}{head}", backup.default_dir())
     if current is None and "expenses" in tables:
         baseline = script.get_base()
         logger.info("Existing database without migration history: stamping %s", baseline)
         stamp(revision=baseline)
     upgrade()
     return True
-
-
-def _backup_sqlite_database(reason: str) -> None:
-    """Copy the SQLite database to ``<db dir>/backups/`` using SQLite's backup API."""
-    url = db.engine.url
-    source = url.database
-    if url.get_backend_name() != "sqlite" or not source or not os.path.isfile(source):
-        return
-    backup_dir = os.path.join(os.path.dirname(source), "backups")
-    os.makedirs(backup_dir, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(source))[0]
-    target = os.path.join(backup_dir, f"{stem}-{datetime.now():%Y%m%d-%H%M%S}-{reason}.db")
-    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
-        src.backup(dst)
-    logger.info("Database backed up to %s", target)
 
 
 def _seed_budget_periods(config_class: type[Config]) -> None:

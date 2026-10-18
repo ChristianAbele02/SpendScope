@@ -84,6 +84,12 @@
                 <i class="fa-solid fa-code-merge me-2 text-info"></i>{{ t('nav_settings_aliases') }}
               </a>
             </li>
+            <li>
+              <a class="dropdown-item {% if request.endpoint == 'settings.backups' %}active{% endif %}"
+                 href="{{ url_for('settings.backups') }}">
+                <i class="fa-solid fa-box-archive me-2 text-secondary"></i>{{ t('nav_settings_backups') }}
+              </a>
+            </li>
           </ul>
         </li>
       </ul>

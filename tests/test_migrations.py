@@ -9,6 +9,15 @@ from alembic.script import ScriptDirectory
 from app import create_app, db, migrate
 from config import Config
 
+# Tables added by migrations after the 0001 baseline; a pre-migration database
+# created by the old db.create_all() startup code never had them.
+POST_BASELINE_TABLES = {"app_settings"}
+
+
+def _create_legacy_schema(engine) -> None:
+    tables = [t for name, t in db.metadata.tables.items() if name not in POST_BASELINE_TABLES]
+    db.metadata.create_all(engine, tables=tables)
+
 
 def _config_for(tmp_path, db_file):
     class TestConfig(Config):
@@ -31,7 +40,7 @@ def test_legacy_database_is_stamped_backed_up_and_keeps_data(tmp_path):
 
     # Simulate a database created by the old db.create_all() startup code.
     engine = sa.create_engine("sqlite:///" + db_file.as_posix())
-    db.metadata.create_all(engine)
+    _create_legacy_schema(engine)
     with engine.begin() as conn:
         conn.execute(sa.text(
             "INSERT INTO expenses (date, store, amount, category) "

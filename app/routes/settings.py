@@ -1,9 +1,9 @@
-"""Settings pages: monthly budget rules, category limits and store aliases."""
+"""Settings pages: budget rules, category limits, store aliases and backups."""
 from datetime import date
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
 
-from app import db
+from app import backup, db
 from app import stats as s
 from app.forms import parse_amount
 from app.models import BudgetPeriod, CategoryBudget, StoreAlias
@@ -163,3 +163,98 @@ def store_alias_delete(alias_id: int):
     db.session.commit()
     flash(t("flash_alias_deleted"), "success")
     return redirect(url_for("settings.store_aliases"))
+
+
+# ── Backups ───────────────────────────────────────────────────────────────────
+
+def _backups_page():
+    return redirect(url_for("settings.backups"))
+
+
+@settings.route("/backups")
+def backups():
+    """Backup settings, the "back up now" button and the list of backups."""
+    current = backup.load_settings()
+    sqlite = backup.database_path() is not None
+    return render_template(
+        "settings_backups.html",
+        settings=current,
+        sqlite=sqlite,
+        backups=backup.list_backups() if sqlite else [],
+        target_dir=backup.backup_dir(current) if sqlite else None,
+        default_dir=backup.default_dir(),
+        last_auto=backup.last_auto_backup() if sqlite else None,
+        next_due=backup.next_due(current) if sqlite else None,
+        interval_choices=backup.INTERVAL_CHOICES_HOURS,
+        keep_range=(backup.MIN_KEEP, backup.MAX_KEEP),
+    )
+
+
+@settings.route("/backups/settings", methods=["POST"])
+def backup_settings_save():
+    """Store the backup settings after validating them."""
+    try:
+        interval = int(request.form.get("interval_hours", ""))
+        keep = int(request.form.get("keep", ""))
+    except ValueError:
+        flash(t("flash_backup_invalid_keep", backup.MIN_KEEP, backup.MAX_KEEP), "danger")
+        return _backups_page()
+    if not backup.MIN_KEEP <= keep <= backup.MAX_KEEP:
+        flash(t("flash_backup_invalid_keep", backup.MIN_KEEP, backup.MAX_KEEP), "danger")
+        return _backups_page()
+    new = backup.BackupSettings(
+        enabled=request.form.get("enabled") == "on",
+        interval_hours=interval,
+        keep=keep,
+        directory=request.form.get("directory", "").strip(),
+    )
+    try:
+        backup.save_settings(new)
+    except backup.BackupError as e:
+        flash(t("flash_backup_invalid_settings", str(e)), "danger")
+        return _backups_page()
+    flash(t("flash_backup_settings_saved"), "success")
+    return _backups_page()
+
+
+@settings.route("/backups/create", methods=["POST"])
+def backup_create():
+    """Make a manual backup now."""
+    try:
+        info = backup.create_backup(backup.REASON_MANUAL)
+    except backup.BackupError as e:
+        flash(t("flash_backup_failed", str(e)), "danger")
+        return _backups_page()
+    flash(t("flash_backup_created", info.name), "success")
+    return _backups_page()
+
+
+@settings.route("/backups/<name>/download")
+def backup_download(name: str):
+    """Send a backup file to the browser."""
+    info = backup.find_backup(name)
+    if info is None:
+        abort(404, description=t("flash_backup_not_found"))
+    return send_file(info.path, as_attachment=True, download_name=info.name)
+
+
+@settings.route("/backups/<name>/restore", methods=["POST"])
+def backup_restore(name: str):
+    """Replace the database with a backup (the current state is saved first)."""
+    try:
+        info = backup.restore_backup(name)
+    except backup.BackupError as e:
+        flash(t("flash_backup_failed", str(e)), "danger")
+        return _backups_page()
+    flash(t("flash_backup_restored", info.created.strftime("%d.%m.%Y %H:%M")), "success")
+    return _backups_page()
+
+
+@settings.route("/backups/<name>/delete", methods=["POST"])
+def backup_delete(name: str):
+    """Delete one backup file."""
+    if backup.delete_backup(name):
+        flash(t("flash_backup_deleted"), "success")
+    else:
+        flash(t("flash_backup_not_found"), "warning")
+    return _backups_page()
