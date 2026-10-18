@@ -37,7 +37,7 @@
           {% endif %}
         {% else %}
           <!-- Safe default: append new rows and de-duplicate -->
-          <form method="post">
+          <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="mode" value="append">
             <p class="text-muted x-small mb-2">
               <i class="fa-solid fa-circle-info me-1"></i>{{ t('import_append_hint') }}
@@ -52,7 +52,7 @@
           <hr class="border-secondary my-3">
 
           <!-- Destructive option, gated behind an explicit confirmation -->
-          <form method="post" onsubmit="return confirm('{{ t('import_replace_confirm') }}')">
+          <form method="post" onsubmit="return confirm('{{ t('import_replace_confirm') }}')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="mode" value="replace">
             <div class="form-check mb-2">
               <input class="form-check-input" type="checkbox" value="yes"

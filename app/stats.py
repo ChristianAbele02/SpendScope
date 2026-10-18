@@ -384,14 +384,13 @@ def _with_trip_projection(trip_stats: dict | None, today: date, period_end: date
 # Each stream is a compound sum R_c = sum_{i=1..N_c} X_ci:
 #
 #   * Purchase frequency. The daily purchase rate λ_c gets a Gamma(α₀, β₀)
-#     prior fitted to the last completed periods (empirical Bayes), with the
-#     prior strength capped at _FREQ_PRIOR_STRENGTH_DAYS so the current period
-#     can shift it. Posterior: Gamma(α₀ + n, β₀ + t). N_c for the rest of the
+#     prior fitted to the last completed periods (empirical Bayes), worth the
+#     history's effective days up to _FREQ_PRIOR_STRENGTH_DAYS. Posterior: Gamma(α₀ + n, β₀ + t). N_c for the rest of the
 #     period is Poisson(λ_c·d) given λ_c, i.e. Negative Binomial marginally.
 #
 #   * Within-period profile. Spending is not spread evenly over a period (in
-#     the real data the purchase rate in the last ten days was about a third
-#     lower than in the first week), so t and d are not calendar days but
+#     the real data, spend per day was 13.80 € in the first two weeks and
+#     8.20 € in the last ten days), so t and d are not calendar days but
 #     "effective days" Σ w(day), where w is a weekly profile estimated from the
 #     last _PROFILE_HISTORY_PERIODS periods, shrunk towards flat (w = 1) and
 #     normalised to an average of 1. A constant rate over-forecast every cut-off
@@ -399,8 +398,8 @@ def _with_trip_projection(trip_stats: dict | None, today: date, period_end: date
 #
 #   * Purchase amount. X_ci ~ Gamma(k_c, θ_c) (shape k, rate θ). Receipts are
 #     right-skewed but have a lighter upper tail than a log-normal (fuel is
-#     capped by the tank size); on this data the Gamma matched the empirical
-#     95th/99th percentiles far better. The shape k_c is estimated from all
+#     capped by the tank size); a log-normal scored worse in the backtest
+#     (interval score 366 vs. 331). The shape k_c is estimated from all
 #     known amounts (Minka's closed-form approximation of the MLE, plug-in).
 #     The rate gets a conjugate Gamma(a₀, b₀) prior worth κ₀ pseudo-purchases
 #     at the historical mean amount (κ₀ capped at _AMOUNT_PRIOR_STRENGTH);
@@ -414,13 +413,29 @@ def _with_trip_projection(trip_stats: dict | None, today: date, period_end: date
 # minimises the expected absolute error), the interval uses its 5th/95th
 # percentiles, and P(over budget) is the share of draws above the budget.
 #
+#   * Shared monthly factor. Busy months tend to be busy in every category,
+#     so the streams' rates are multiplied by a common factor u ~ Gamma(1/φ,
+#     1/φ) (mean 1, variance φ) for the current period. φ is estimated from
+#     how strongly purchase counts co-vary across streams in past periods
+#     (_shared_dispersion); φ = 0 gives independent streams. Given this
+#     period's counts, λ and u are drawn with a short Gibbs sampler per draw,
+#     so purchases observed in one stream also inform the others.
+#     Off by default (_MAX_SHARED_DISPERSION = 0): it widened the intervals
+#     and lost in the backtest on both the tuning and the holdout periods.
+#     `backtest_forecast.py --tune` keeps re-testing it.
+#
+# The prior strengths were chosen by `backtest_forecast.py --tune` on all but
+# the last 12 periods (grid search, interval score). On those 12 held-out
+# periods they tied the earlier hand-picked values (interval score 290 vs. 291).
+#
 # Refunds (negative amounts) are excluded from the purchase model; they still
-# reduce the actual spend so far. Streams are assumed independent.
+# reduce the actual spend so far. Purchase amounts of different streams are
+# assumed independent.
 # scripts/backtest_forecast.py scores the forecast against past periods.
 
 _PREDICTION_HISTORY_PERIODS = 6     # completed periods used to build the priors
-_FREQ_PRIOR_STRENGTH_DAYS = 45.0    # cap on prior weight (in days) for the purchase rate
-_AMOUNT_PRIOR_STRENGTH = 25.0       # cap on prior weight (in purchases) for the amount model
+_FREQ_PRIOR_STRENGTH_DAYS = 180.0   # cap on prior weight (in days) for the purchase rate (tuned)
+_AMOUNT_PRIOR_STRENGTH = 100.0      # cap on prior weight (in purchases) for the amount model (tuned)
 _WEAK_AMOUNT_PRIOR = 1.0            # κ₀ when a stream has no history (prior from current data)
 _DEFAULT_AMOUNT_CV = 0.6            # assumed coefficient of variation with <2 distinct amounts
 _MAX_GAMMA_SHAPE = 1000.0           # cap on k when (nearly) all amounts are identical
@@ -436,7 +451,10 @@ _TRIP_LOOKBACK_DAYS = 120
 _PROFILE_HISTORY_PERIODS = 24       # completed periods used to estimate the profile
 _PROFILE_BUCKET_DAYS = 7            # profile resolution: weeks of the period
 _PROFILE_BUCKETS = 4                # days 1-7, 8-14, 15-21, 22-end
-_PROFILE_PRIOR_STRENGTH = 20.0      # pseudo-purchases per bucket pulling w towards 1
+_PROFILE_PRIOR_STRENGTH = 5.0       # pseudo-purchases per bucket pulling w towards 1 (tuned)
+_MAX_SHARED_DISPERSION = 0.0        # cap on φ (shared monthly factor); 0 = off, 0.5 to try it
+_MIN_SHARED_DISPERSION = 1e-3       # below this the factor is dropped (independent streams)
+_SHARED_FACTOR_SWEEPS = 25          # Gibbs sweeps per draw for (λ, u) given the counts
 
 
 @dataclass(frozen=True)
@@ -444,8 +462,9 @@ class _Stream:
     """Posterior parameters of one purchase stream.
 
     Attributes:
-        alpha: Gamma shape of the daily purchase rate posterior.
-        beta: Gamma rate of the daily purchase rate posterior.
+        alpha: Gamma shape of the daily purchase rate posterior (u = 1).
+        beta: Gamma rate of the daily purchase rate posterior (u = 1).
+        n: Purchases observed in the current period (already in ``alpha``).
         k: Gamma shape of a single purchase amount.
         a: Gamma shape of the amount-rate (θ) posterior.
         b: Gamma rate of the amount-rate (θ) posterior.
@@ -453,6 +472,7 @@ class _Stream:
 
     alpha: float
     beta: float
+    n: int
     k: float
     a: float
     b: float
@@ -584,6 +604,82 @@ def _exposure(profile: list[float], first_offset: int, last_offset: int) -> floa
     return sum(profile[_profile_bucket(o)] for o in range(first_offset, last_offset + 1))
 
 
+def _stream_key(history: dict[str, list[float]]) -> Callable[[str], str]:
+    """Map a category to its stream: itself if it has enough history, else pooled."""
+
+    def key(cat: str) -> str:
+        return cat if len(history.get(cat, [])) >= _MIN_STREAM_PURCHASES else _POOLED_STREAM
+
+    return key
+
+
+def _shared_dispersion(counts: list[dict[str, int]], exposures: list[float]) -> float:
+    """Method-of-moments estimate of φ, the variance of the shared monthly factor.
+
+    Under n_sp ~ Poisson(λ_s·u_p·E_p) with E[u_p] = 1 and Var(u_p) = φ, two
+    different streams s ≠ t have Cov(n_sp, n_tp) = μ_sp·μ_tp·φ, where μ_sp =
+    λ_s·E_p. Hence φ̂ = Σ_p Σ_{s<t} r_sp·r_tp / Σ_p Σ_{s<t} μ_sp·μ_tp with
+    residuals r = n - μ̂ and λ̂_s = Σ_p n_sp / Σ_p E_p. Only cross-stream
+    products enter, so one stream's own over-dispersion (or drift) does not
+    count as shared.
+
+    Args:
+        counts: Purchases per stream for each past period.
+        exposures: Effective days of each of those periods.
+
+    Returns:
+        φ̂ clipped to [0, _MAX_SHARED_DISPERSION]; 0 with fewer than two
+        streams or periods.
+    """
+    total_exposure = sum(exposures)
+    streams = sorted({name for period in counts for name in period})
+    if len(counts) < 2 or len(streams) < 2 or total_exposure <= 0:
+        return 0.0
+    rates = {st: sum(p.get(st, 0) for p in counts) / total_exposure for st in streams}
+    num = den = 0.0
+    for period, exposure in zip(counts, exposures, strict=True):
+        mu = [rates[st] * exposure for st in streams]
+        resid = [period.get(st, 0) - m for st, m in zip(streams, mu, strict=True)]
+        # Σ_{s<t} x_s·x_t = ((Σx)² - Σx²) / 2
+        num += (sum(resid) ** 2 - sum(r * r for r in resid)) / 2
+        den += (sum(mu) ** 2 - sum(m * m for m in mu)) / 2
+    if den <= 0:
+        return 0.0
+    return min(max(num / den, 0.0), _MAX_SHARED_DISPERSION)
+
+
+def _stream_period_counts(
+    year: int, month: int, key: Callable[[str], str], profile: list[float]
+) -> tuple[list[dict[str, int]], list[float]]:
+    """Purchases per stream and effective days of each recent completed period.
+
+    Uses the last _PROFILE_HISTORY_PERIODS periods before (year, month) that
+    contain at least one purchase.
+    """
+    labels = [_prev_month(year, month, n) for n in range(1, _PROFILE_HISTORY_PERIODS + 1)]
+    rows = (
+        db.session.query(Expense.date, Expense.category)
+        .filter(
+            Expense.date.isnot(None),
+            Expense.date >= period_bounds(*labels[-1])[0],
+            Expense.date <= period_bounds(*labels[0])[1],
+            Expense.amount > 0,
+        )
+        .all()
+    )
+    by_period: dict[tuple[int, int], dict[str, int]] = {}
+    for row in rows:
+        stream = key(row.category or DEFAULT_CATEGORY)
+        period = by_period.setdefault(period_for_date(row.date), {})
+        period[stream] = period.get(stream, 0) + 1
+    counts, exposures = [], []
+    for label, period in by_period.items():
+        p_start, p_end = period_bounds(*label)
+        counts.append(period)
+        exposures.append(_exposure(profile, 0, (p_end - p_start).days))
+    return counts, exposures
+
+
 def _build_streams(
     history: dict[str, list[float]],
     hist_exposure: float,
@@ -602,10 +698,7 @@ def _build_streams(
         One stream per category with at least _MIN_STREAM_PURCHASES history
         purchases, plus one pooled stream for all remaining categories.
     """
-
-    def key(cat: str) -> str:
-        return cat if len(history.get(cat, [])) >= _MIN_STREAM_PURCHASES else _POOLED_STREAM
-
+    key = _stream_key(history)
     hist_g: dict[str, list[float]] = {}
     cur_g: dict[str, list[float]] = {}
     for cat, amounts in history.items():
@@ -622,18 +715,58 @@ def _build_streams(
         else:
             alpha0, beta0 = _VAGUE_FREQ_SHAPE, kappa_f or _VAGUE_FREQ_RATE
         k, a, b = _amount_posterior(h, c)
-        streams.append(_Stream(alpha0 + len(c), beta0 + elapsed_exposure, k, a, b))
+        streams.append(_Stream(alpha0 + len(c), beta0 + elapsed_exposure, len(c), k, a, b))
     return streams
 
 
+def _draw_rates(
+    streams: list[_Stream],
+    elapsed_exposure: float,
+    dispersion: float,
+    draws: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Posterior draws of each stream's current-period rate λ_s·u.
+
+    Without a shared factor (φ below _MIN_SHARED_DISPERSION) these are the
+    independent conjugate posteriors. Otherwise each draw runs a Gibbs sampler
+    for _SHARED_FACTOR_SWEEPS sweeps, starting from u drawn from its prior:
+    λ_s | u ~ Gamma(α₀_s + n_s, β₀_s + u·t) and
+    u | λ ~ Gamma(1/φ + Σn_s, 1/φ + t·Σλ_s), with t the elapsed effective days.
+
+    Returns:
+        Array of shape (len(streams), draws).
+    """
+    alpha = np.array([[st.alpha] for st in streams])
+    beta = np.array([[st.beta] for st in streams])
+    if dispersion < _MIN_SHARED_DISPERSION:
+        return rng.gamma(alpha, 1.0 / beta, (len(streams), draws))
+    n_total = sum(st.n for st in streams)
+    beta0 = beta - elapsed_exposure  # prior rate; alpha already includes n
+    shape_u = 1.0 / dispersion
+    u = rng.gamma(shape_u, dispersion, draws)
+    for _ in range(_SHARED_FACTOR_SWEEPS):
+        lam = rng.gamma(alpha, 1.0 / (beta0 + u * elapsed_exposure))
+        u = rng.gamma(shape_u + n_total, 1.0 / (shape_u + elapsed_exposure * lam.sum(axis=0)))
+    lam = rng.gamma(alpha, 1.0 / (beta0 + u * elapsed_exposure))
+    return lam * u
+
+
 def _simulate_remaining(
-    streams: list[_Stream], remaining_exposure: float, draws: int, rng: np.random.Generator
+    streams: list[_Stream],
+    elapsed_exposure: float,
+    remaining_exposure: float,
+    dispersion: float,
+    draws: int,
+    rng: np.random.Generator,
 ) -> np.ndarray:
     """Posterior predictive draws of the spend in the rest of the period.
 
     Args:
         streams: Posterior purchase streams.
+        elapsed_exposure: Effective days of the period observed so far.
         remaining_exposure: Effective days left in the period.
+        dispersion: Variance φ of the shared monthly factor (0 = independent).
         draws: Number of Monte Carlo draws.
         rng: Random generator (seeded by the caller).
 
@@ -641,10 +774,10 @@ def _simulate_remaining(
         Array of ``draws`` simulated remaining totals (euros).
     """
     total = np.zeros(draws)
-    if remaining_exposure <= 0:
+    if remaining_exposure <= 0 or not streams:
         return total
-    for st in streams:
-        lam = rng.gamma(st.alpha, 1.0 / st.beta, draws)
+    rates = _draw_rates(streams, elapsed_exposure, dispersion, draws, rng)
+    for st, lam in zip(streams, rates, strict=True):
         n = rng.poisson(lam * remaining_exposure)
         theta = rng.gamma(st.a, 1.0 / st.b, draws)
         # Sum of n iid Gamma(k, θ) amounts is Gamma(n·k, θ); shape 0 yields 0.
@@ -744,9 +877,16 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
     elapsed_exposure = _exposure(profile, 0, days_elapsed - 1)
     remaining_exposure = _exposure(profile, days_elapsed, days_in_period - 1)
     streams = _build_streams(history, hist_exposure, current, elapsed_exposure)
+    dispersion = (
+        _shared_dispersion(*_stream_period_counts(year, month, _stream_key(history), profile))
+        if _MAX_SHARED_DISPERSION > 0
+        else 0.0
+    )
 
     rng = np.random.default_rng(_FORECAST_SEED)
-    totals = spent + _simulate_remaining(streams, remaining_exposure, _FORECAST_DRAWS, rng)
+    totals = spent + _simulate_remaining(
+        streams, elapsed_exposure, remaining_exposure, dispersion, _FORECAST_DRAWS, rng
+    )
     median, ci_low, ci_high = np.percentile(totals, [50.0, _CI_TAIL_PCT, 100.0 - _CI_TAIL_PCT])
     prob_over = float(np.mean(totals > budget))
 
@@ -776,6 +916,7 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
         "will_exceed_budget": prob_over >= 0.5,
         "expected_purchases_remaining": round(total_rate * remaining_exposure, 1),
         "posterior_mean_per_purchase": round(per_purchase, 2),
+        "shared_dispersion": round(dispersion, 3),
         # Trip details (display only)
         "grocery": _with_trip_projection(
             trip_interval_stats("Lebensmittel", _TRIP_LOOKBACK_DAYS, today), today, p_end

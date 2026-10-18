@@ -14,9 +14,24 @@ MIGRATIONS_DIR = os.path.join(BASE_DIR, "migrations")
 class Config:
     """Default Flask configuration for SpendScope."""
 
-    # Only signs the session cookie (language choice). Set SECRET_KEY in the
-    # environment whenever the app is reachable from other devices.
-    SECRET_KEY = os.environ.get("SECRET_KEY") or "spendscope-dev-key-change-in-prod"
+    # Signs the session cookie (language, CSRF token, phone pairing). When unset,
+    # create_app() generates a random key once and keeps it in data/secret_key.
+    SECRET_KEY: str | None = os.environ.get("SECRET_KEY")
+    SESSION_COOKIE_SAMESITE = "Lax"  # cookie not sent with cross-site POSTs
+
+    # CSRF token check on every POST (app.security). Only tests switch it off.
+    CSRF_ENABLED = True
+
+    # Token a phone must present (via the QR code) before it may use the app
+    # over the network. Random per start unless set, so re-scan after a restart.
+    LAN_TOKEN: str | None = os.environ.get("LAN_TOKEN")
+    # Whether run.py listens on the network at all (False with --local).
+    LAN_ACCESS = True
+    # Extra hostnames accepted in the Host header besides IP addresses,
+    # "localhost" and this PC's hostname (comma-separated in the environment).
+    ALLOWED_HOSTS: list[str] = [
+        h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()
+    ]
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or (
         "sqlite:///" + os.path.join(DATA_DIR, "expenses.db")
     )
@@ -58,8 +73,8 @@ class Config:
     # Largest accepted upload (receipt images); 16 MiB is ample for a phone photo.
     MAX_CONTENT_LENGTH: int = int(os.environ.get("MAX_CONTENT_LENGTH", 16 * 1024 * 1024))
 
-    # Werkzeug debugger / reloader. Off by default because the app binds 0.0.0.0
-    # for phone scanning and the debugger allows arbitrary code execution.
+    # Werkzeug debugger / reloader. Off by default because the app listens on
+    # the network for phone scanning and the debugger allows arbitrary code execution.
     DEBUG: bool = os.environ.get("FLASK_DEBUG", "0") == "1"
 
     # Seed for the BudgetPeriod table on first run: (effective_from, monthly_budget).

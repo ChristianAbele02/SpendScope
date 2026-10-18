@@ -18,6 +18,7 @@ def app(tmp_path):
         CSV_PATH = str(tmp_path / "missing.csv")
         TESTING = True
         PERIOD_START_DAY = 1  # calendar months unless a test overrides it
+        CSRF_ENABLED = False  # tests post plain forms; test_security.py covers the check
 
     application = create_app(TestConfig)
     yield application

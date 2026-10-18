@@ -19,7 +19,8 @@ money spent, budget left and the probability of going over.
 [Receipt scanning](#-receipt-scanning) ·
 [Configuration](#%EF%B8%8F-configuration) ·
 [How the forecast works](#-how-the-forecast-works) ·
-[Development](#-development)
+[Development](#-development) ·
+[Privacy](#-privacy-and-safety-notes)
 
 </div>
 
@@ -58,10 +59,20 @@ pip install -e . --no-deps
 python run.py                       # opens SpendScope in its own window
 ```
 
-`python run.py` opens a native desktop window (pywebview, using Edge WebView2 on Windows);
-closing the window stops the app. To run only the server and use a browser instead, start
-`python run.py --server` and open **http://localhost:5000**. In both modes a phone on the same
-Wi-Fi reaches the app at `http://<your-PC-IP>:5000`.
+`python run.py` opens a native desktop window (pywebview, using the Edge WebView2 runtime that
+ships with Windows 10 and 11); closing the window stops the app. If pywebview is not installed,
+`run.py` logs a warning and falls back to server mode. To run only the server and use a browser
+instead, start `python run.py --server` and open **http://localhost:5000**.
+
+In both modes the app also listens on your network so a phone can scan receipts, but only paired
+devices get in: scanning the QR code on the **Add** page pairs the phone, and every other device
+on the network gets "403 Forbidden". Add `--local` (e.g. `python run.py --local`) to close the
+network side completely.
+
+> [!NOTE]
+> On Linux, pywebview additionally needs a GUI backend (GTK or Qt); see the
+> [pywebview installation guide](https://pywebview.flowrl.com/guide/installation.html).
+> `--server` works everywhere.
 
 > [!TIP]
 > The database (`data/expenses.db`) is created on first start, migrated to the latest schema on every
@@ -145,7 +156,9 @@ All settings live in [`config.py`](config.py) and can be overridden with environ
 | `TESSERACT_CMD` | UB Mannheim path | Tesseract binary; falls back to `PATH` if missing |
 | `DATABASE_URL` | `sqlite:///data/expenses.db` | SQLAlchemy database URI |
 | `RECEIPT_SAMPLES_DIR` | `data/receipt_samples` | Where reference receipt images are stored |
-| `SECRET_KEY` | development key | Signs the session cookie; **set this** on a shared network |
+| `SECRET_KEY` | generated | Signs the session cookie; created once and kept in `data/secret_key` when unset |
+| `LAN_TOKEN` | random per start | Pairing token in the QR code; set it to keep phones paired across restarts |
+| `ALLOWED_HOSTS` | empty | Extra hostnames accepted besides IP addresses, `localhost` and the PC's name (comma-separated) |
 | `FLASK_DEBUG` | `0` | `1` enables the debugger (never on an untrusted network) |
 
 Budget rules, category limits and store aliases are managed in the UI under **Settings**.
@@ -153,25 +166,32 @@ Each budget period uses the newest rule whose *effective from* date is on or bef
 
 ## 🔮 How the forecast works
 
-The dashboard forecast simulates the rest of the budget period as a sum of independent
-purchase streams: one per category with at least 10 purchases in the last six periods
-(groceries, fuel, ...), plus one pooled stream for the rare categories.
+The dashboard forecast simulates the rest of the budget period as a sum of purchase streams:
+one per category with at least 10 purchases in the last six periods (groceries, fuel, ...),
+plus one pooled stream for the rare categories.
 
 - **How often you shop.** Each stream's daily purchase rate gets a Gamma prior fitted to the
-  previous six periods (empirical Bayes, capped at 45 days of prior weight) and is updated with
-  this period's purchases. Given the rate, the number of remaining purchases is Poisson.
-- **When in the period you shop.** Spending is front-loaded: in the real data the purchase rate
-  in the last ten days of a period is about a third lower than in the first week. A weekly
-  profile, estimated from the last 24 periods and shrunk towards flat, turns calendar days into
-  "effective days", so the model does not expect the early pace to last.
-- **How much you spend per purchase.** Amounts follow a Gamma distribution, which matched the
-  real receipts' upper tail much better than a log-normal. Its shape is estimated per stream,
-  and its rate gets a conjugate Gamma prior worth up to 25 historical purchases.
+  previous six periods (empirical Bayes) and is updated with this period's purchases. Given the
+  rate, the number of remaining purchases is Poisson.
+- **When in the period you shop.** Spending is front-loaded: in the owner's data, average spend
+  per day falls from 13.80 € in the first two weeks of a period to 8.20 € in the last ten days.
+  A weekly profile, estimated from the last 24 periods and shrunk towards flat, turns calendar
+  days into "effective days", so a busy first week does not get extrapolated to the whole period.
+- **How much you spend per purchase.** Amounts follow a Gamma distribution (shape estimated per
+  stream with Minka's approximation); its rate gets a conjugate Gamma prior from the historical
+  purchases. A log-normal was tried first and scored worse in the backtest below (interval score
+  366 vs. 331 before the weekly profile was added).
 - **Combining them.** 20,000 Monte Carlo draws (fixed seed, so reloading never changes the
   numbers) give the median end-of-period total, a 90% credible interval and *P(total > budget)*.
 
 Refunds lower the actual total but are excluded from the purchase model. The grocery and fuel trip
 counts on the card are shown for context only. Details are in [`app/stats.py`](app/stats.py).
+
+**Optional shared monthly factor.** The model can also multiply all streams' rates by one common
+monthly factor, so that a busy week of groceries raises the fuel forecast too. Its variance is
+estimated from how strongly purchase counts of different categories move together. It is
+**off by default**: in the backtest it widened the intervals and scored worse on both the tuning
+and the holdout periods (see below). `--tune` keeps testing it as more data comes in.
 
 ### Checking the forecast
 
@@ -181,13 +201,32 @@ against the actual final total (interval coverage, interval score, MAE, bias, Br
 The real database is opened read-only.
 
 ```powershell
-python scripts\backtest_forecast.py
+python scripts\backtest_forecast.py                # score the shipped model
+python scripts\backtest_forecast.py --tune         # choose hyperparameters, check on a holdout
 ```
 
-On the owner's data (51 periods, 204 forecasts) the current model reached 94% coverage of its 90%
-interval, a bias of -2.50 € and an MAE of 56.40 €. The previous single-stream Normal model
-reached 97% coverage, a bias of +19.90 € and an MAE of 60.30 €; their interval scores were
-about the same (308 vs. 306).
+`--tune` grid-searches the prior strengths and the shared factor using **only the earlier
+periods**, then scores the winner and the shipped settings on the **last 12 periods**, which the
+search never saw. The shipped prior strengths came out of that procedure. Interval scores on the
+owner's data (lower is better; 51 periods, 4 cut-off days each):
+
+| Settings | Earlier 39 periods (tuning) | Last 12 periods (holdout) |
+|---|---|---|
+| Hand-picked before tuning | 312 | 291 |
+| Hand-picked + shared monthly factor | 325 | 312 |
+| **Tuned (shipped)** | **299** | **290** |
+
+Tuning improved the periods it was fitted on, but on the holdout it only ties the hand-picked
+values. The tuned intervals are narrower (258 € vs. 283 €) and still reach 90% coverage there.
+In all settings the holdout forecasts were about 35 € too low on average, because spending rose
+in the last year. Across all 204 forecasts the shipped model reaches 93% coverage, an MAE of
+55.70 € and an interval about 350 € wide on day 3 and 140 € on day 24.
+
+> [!IMPORTANT]
+> Even the holdout is not fully clean: the model's structure (Gamma amounts, weekly profile) was
+> designed while looking at all periods. Only periods that start after the freeze date in the
+> script (`MODEL_FROZEN_ON`, currently 18 October 2026) are truly out of sample; the backtest
+> reports them in a separate "after freeze" row. Move that date whenever the model changes.
 
 ### Anomaly badges
 
@@ -212,7 +251,8 @@ SpendScope/
 │   ├── stats.py            # Periods, aggregations, forecast, anomaly detection
 │   ├── extraction.py       # Claude vision receipt backend
 │   ├── forms.py            # Form validation, safe redirects
-│   ├── translations.py     # DE/EN strings, t() and |eur filter
+│   ├── security.py         # Host check, phone pairing, CSRF tokens
+│   ├── translations.py     # DE/EN strings, t(), |eur and |pct filters
 │   ├── routes/             # main, api, scan, settings blueprints
 │   ├── templates/          # Jinja2 templates (Bootstrap 5 dark)
 │   └── static/             # charts.js, style.css, vendored Bootstrap & Chart.js
@@ -253,8 +293,12 @@ pytest              # tests (never touch data/ or expenses_raw.csv)
 python scripts\backtest_forecast.py   # score the forecast on past periods (read-only)
 ```
 
-GitHub Actions runs all three on Python 3.11 and 3.12 with the pinned dev lock for every push and
-pull request. Dependency updates are done manually by regenerating the lock files (below).
+GitHub Actions runs ruff, mypy and pytest on Python 3.11 and 3.12 with the pinned dev lock for
+every push and pull request. The backtest needs a real database, so it runs locally only.
+Dependency updates are done manually by regenerating the lock files (below).
+
+Every new POST form needs `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`;
+`tests/test_security.py` fails if one is missing.
 
 ### Changing the database schema
 
@@ -282,15 +326,22 @@ pip install -r requirements-dev.txt   # then run the checks above
 - All data stays on your machine. Receipt photos leave it only when the Claude backend is enabled.
 - `data/` (database, receipt images, automatic backups) and `expenses_raw.csv` are git-ignored.
   Back up `data/expenses.db` regularly; it is a single file.
-- The server binds to `0.0.0.0` so your phone can reach it. It has no login, so only run it on a
-  network you trust, and set `SECRET_KEY`.
+- There are no user accounts. Instead, [`app/security.py`](app/security.py) runs three checks on
+  every request:
+  - **Pairing.** Only the PC itself and phones paired through the QR code get in; the pairing
+    token changes on every start unless `LAN_TOKEN` is set.
+  - **CSRF tokens.** Every form carries one, so another website cannot submit changes through
+    your browser.
+  - **Host check.** The `Host` header must be an IP address, `localhost` or the PC's name, which
+    blocks DNS-rebinding attacks from websites.
+- Anyone who can see the QR code (or its URL on the full-screen QR page) can pair a device, and
+  traffic on the network is unencrypted HTTP. Use `--local` on networks you do not trust.
 
 ## 🧭 Roadmap
 
 - [ ] Line-item extraction and per-item categories from receipts
 - [ ] Desktop review queue for receipts uploaded from the phone
 - [ ] Auto-save scans when all fields have high confidence
-- [ ] CSRF protection for all forms
 
 ## 📄 License
 

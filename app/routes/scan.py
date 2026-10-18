@@ -20,6 +20,7 @@ import re
 import socket
 import uuid
 from datetime import UTC, date, datetime
+from urllib.parse import urlencode
 
 from flask import (
     Blueprint,
@@ -34,7 +35,7 @@ from flask import (
     url_for,
 )
 
-from app import db, extraction
+from app import db, extraction, security
 from app.forms import read_expense_form
 from app.models import Expense, ReceiptSample, StoreProfile
 from app.parser import get_category
@@ -117,9 +118,13 @@ def _local_ip() -> str:
 
 
 def _scan_url() -> str:
-    """URL of the mobile scan page as reachable from a phone on the same network."""
+    """URL of the mobile scan page as reachable from a phone on the same network.
+
+    Carries the pairing token, so opening it pairs the phone (see app.security).
+    """
     port = request.environ.get("SERVER_PORT", _DEFAULT_PORT)
-    return f"http://{_local_ip()}:{port}{url_for('scan.mobile')}"
+    query = urlencode(security.pairing_query())
+    return f"http://{_local_ip()}:{port}{url_for('scan.mobile')}?{query}"
 
 
 def _try_ocr(image_bytes: bytes) -> tuple[str | None, str | None]:

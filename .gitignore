@@ -24,6 +24,7 @@ data/*.db
 data/*.sqlite
 data/receipt_samples/
 data/backups/
+data/secret_key
 
 # Claude context and local settings
 CLAUDE.md

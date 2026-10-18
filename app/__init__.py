@@ -1,6 +1,7 @@
 """SpendScope application factory."""
 import logging
 import os
+import secrets
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime
@@ -31,13 +32,15 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     """
     app = Flask(__name__)
     app.config.from_object(config_class)
+    if not app.config.get("SECRET_KEY"):
+        app.config["SECRET_KEY"] = _load_secret_key(app.config.get("TESTING", False))
 
     db.init_app(app)
     # Batch mode lets Alembic emulate ALTER TABLE on SQLite.
     migrate.init_app(app, db, directory=MIGRATIONS_DIR, render_as_batch=True)
 
     # Imported here because the route modules import ``db`` from this package.
-    from app import stats
+    from app import security, stats
     from app.parser import CATEGORY_COLORS
     from app.routes.api import api
     from app.routes.main import main
@@ -49,6 +52,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     app.register_blueprint(api, url_prefix="/api")
     app.register_blueprint(settings, url_prefix="/settings")
     app.register_blueprint(scan, url_prefix="/scan")
+    security.init_app(app)
 
     @app.context_processor
     def inject_globals() -> dict:
@@ -75,6 +79,29 @@ def create_app(config_class: type[Config] = Config) -> Flask:
             _seed_budget_periods(config_class)
 
     return app
+
+
+def _load_secret_key(testing: bool) -> str:
+    """Session signing key: kept in ``data/secret_key``, created on first start.
+
+    Tests get a throwaway key so they never write into ``data/``.
+    """
+    if testing:
+        return secrets.token_hex(32)
+    path = os.path.join(DATA_DIR, "secret_key")
+    try:
+        with open(path, encoding="ascii") as fh:
+            key = fh.read().strip()
+        if key:
+            return key
+    except FileNotFoundError:
+        pass
+    os.makedirs(DATA_DIR, exist_ok=True)
+    key = secrets.token_hex(32)
+    with open(path, "w", encoding="ascii") as fh:
+        fh.write(key)
+    logger.info("Generated a new session key in %s", path)
+    return key
 
 
 def _upgrade_database() -> bool:

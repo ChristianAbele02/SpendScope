@@ -219,6 +219,10 @@ TRANSLATIONS: dict[str, dict] = {
 
         # Anomaly
         "anomaly_hint":         "Ungewöhnlich hoch für diesen Laden",
+        "security_csrf_failed": "Das Formular ist abgelaufen. Bitte die Seite neu laden und erneut absenden.",
+        "security_not_paired":  "Dieses Gerät ist nicht gekoppelt. Scanne den QR-Code auf der Seite „Hinzufügen“ am PC.",
+        "security_host_rejected": "Unbekannter Hostname. Öffne SpendScope über localhost oder die IP-Adresse des PCs.",
+        "scan_lan_off":         "Handy-Scan ist aus, weil SpendScope mit --local gestartet wurde. Starte ohne --local, um ihn zu nutzen.",
         "anomaly_detail":       "nur {} der Einkäufe hier sind so teuer (Ø {})",
 
         # Receipt sample database
@@ -488,6 +492,10 @@ TRANSLATIONS: dict[str, dict] = {
 
         # Anomaly
         "anomaly_hint":         "Unusually high for this store",
+        "security_csrf_failed": "This form has expired. Reload the page and submit it again.",
+        "security_not_paired":  "This device is not paired. Scan the QR code on the PC's Add page.",
+        "security_host_rejected": "Unknown hostname. Open SpendScope via localhost or the PC's IP address.",
+        "scan_lan_off":         "Phone scanning is off because SpendScope was started with --local. Start it without --local to use it.",
         "anomaly_detail":       "only {} of purchases here cost this much (avg {})",
 
         # Receipt sample database

@@ -65,7 +65,7 @@ ignore = ["E501"]
 # No python_version pin: mypy checks against the running interpreter (CI covers
 # 3.11 and 3.12). Pinning 3.11 breaks on numpy>=2.5, whose stubs use 3.12 syntax;
 # ruff's target-version still keeps the source 3.11-compatible.
-files = ["app", "config.py", "run.py"]
+files = ["app", "config.py", "run.py", "scripts"]
 ignore_missing_imports = true   # Flask-SQLAlchemy / Flask-Migrate ship no stubs
 warn_redundant_casts = true
 warn_unused_ignores = true

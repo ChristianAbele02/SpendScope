@@ -35,7 +35,7 @@
               <td class="fw-bold text-warning">{{ lim.monthly_limit|eur(0) }}</td>
               <td class="text-end pe-3">
                 <form method="post" action="{{ url_for('settings.category_budget_delete', limit_id=lim.id) }}"
-                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
+                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}" title="{{ t('delete') }}">
                     <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                   </button>
@@ -61,7 +61,7 @@
         <span class="fw-semibold"><i class="fa-solid fa-plus me-2 text-success"></i>{{ t('cat_limit_add') }}</span>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('settings.category_budget_set') }}">
+        <form method="post" action="{{ url_for('settings.category_budget_set') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label text-muted small">{{ t('category') }} <span class="text-danger">*</span></label>
             <select name="category" required class="form-select bg-dark text-light border-secondary">

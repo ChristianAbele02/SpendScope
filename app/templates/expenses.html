@@ -101,7 +101,7 @@
     </span>
   </div>
   <div class="d-flex gap-2 flex-shrink-0">
-    <form method="post" action="{{ url_for('main.bulk_category') }}">
+    <form method="post" action="{{ url_for('main.bulk_category') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="store"        value="{{ bulk_prompt.store }}">
       <input type="hidden" name="category"     value="{{ bulk_prompt.category }}">
       <input type="hidden" name="old_category" value="{{ bulk_prompt.old_category }}">
@@ -126,7 +126,7 @@
     <i class="fa-solid fa-clock-rotate-left text-secondary x-small" aria-hidden="true"></i>
     <span class="text-muted flex-grow-1">{{ log.description }}</span>
     <span class="text-muted fs-xxs">{{ log.timestamp.strftime('%d.%m %H:%M') }}</span>
-    <form method="post" action="{{ url_for('main.undo_change', log_id=log.id) }}" class="d-inline">
+    <form method="post" action="{{ url_for('main.undo_change', log_id=log.id) }}" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="_next" value="{{ request.url }}">
       <button class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:0.72rem">
         <i class="fa-solid fa-rotate-left me-1"></i>{{ t('undo') }}
@@ -196,7 +196,7 @@
               <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
             </button>
             <form method="post" action="{{ url_for('main.delete_expense', expense_id=e.id) }}"
-                  onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
+                  onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
                       aria-label="{{ t('delete') }}" title="{{ t('delete') }}">
                 <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
@@ -260,7 +260,7 @@
         </h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form id="editForm" method="post" action="">
+      <form id="editForm" method="post" action=""><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="_next" value="{{ request.url }}">
         <div class="modal-body">
 

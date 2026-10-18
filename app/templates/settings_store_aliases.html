@@ -33,7 +33,7 @@
               <td class="fw-semibold text-white">{{ a.canonical }}</td>
               <td class="text-end pe-3">
                 <form method="post" action="{{ url_for('settings.store_alias_delete', alias_id=a.id) }}"
-                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
+                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}" title="{{ t('delete') }}">
                     <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                   </button>
@@ -59,7 +59,7 @@
         <span class="fw-semibold"><i class="fa-solid fa-plus me-2 text-success"></i>{{ t('alias_add') }}</span>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('settings.store_alias_add') }}">
+        <form method="post" action="{{ url_for('settings.store_alias_add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label text-muted small">{{ t('alias_raw') }} <span class="text-danger">*</span></label>
             <input type="text" name="alias" required list="stored-stores"

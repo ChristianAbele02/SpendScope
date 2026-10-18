@@ -3,6 +3,7 @@
 ``python run.py``            opens SpendScope in a native desktop window (pywebview),
                              falling back to server-only mode if pywebview is missing.
 ``python run.py --server``   runs only the web server (open it in a browser).
+``--local``                  in either mode: listen on this PC only (no phone scanning).
 ``flask --app run import-csv`` imports historical data.
 """
 import argparse
@@ -17,7 +18,8 @@ from app import create_app
 
 logger = logging.getLogger(__name__)
 
-HOST = "0.0.0.0"  # LAN-reachable so phones can open /scan
+LAN_HOST = "0.0.0.0"     # reachable from the network so a paired phone can open /scan
+LOCAL_HOST = "127.0.0.1"  # --local: this PC only
 PORT = 5000
 WINDOW_TITLE = "SpendScope"
 WINDOW_SIZE = (1280, 860)
@@ -58,11 +60,16 @@ def import_csv_command(path: str | None, replace: bool) -> None:
         click.echo(f"Error: {result['error']}", err=True)
 
 
+def _host() -> str:
+    """Address to bind: the network unless LAN access was switched off (--local)."""
+    return LAN_HOST if app.config["LAN_ACCESS"] else LOCAL_HOST
+
+
 def run_server() -> None:
     """Run the Flask server in the foreground (browser mode)."""
     # Debug stays off unless FLASK_DEBUG=1 because the debugger would be
     # exposed to the whole LAN.
-    app.run(debug=app.config.get("DEBUG", False), host=HOST, port=PORT)
+    app.run(debug=app.config.get("DEBUG", False), host=_host(), port=PORT)
 
 
 def _wait_for_server(port: int, timeout: float) -> bool:
@@ -88,8 +95,8 @@ def _wait_for_server(port: int, timeout: float) -> bool:
 def run_desktop() -> None:
     """Open SpendScope in a native window; the server runs in a background thread.
 
-    The server still binds to the LAN, so phone scanning keeps working while the
-    window is open. Closing the window ends the process (the thread is a daemon).
+    Unless started with --local, the server also listens on the network, so a
+    paired phone can scan receipts while the window is open. Closing the window ends the process (the thread is a daemon).
     Falls back to :func:`run_server` if pywebview is not installed.
     """
     try:
@@ -106,7 +113,7 @@ def run_desktop() -> None:
     # The reloader only works in the main thread, so it is always off here.
     server = threading.Thread(
         target=app.run,
-        kwargs={"host": HOST, "port": PORT, "use_reloader": False},
+        kwargs={"host": _host(), "port": PORT, "use_reloader": False},
         daemon=True,
     )
     server.start()
@@ -132,7 +139,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Run only the web server instead of opening a desktop window.",
     )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Listen on this PC only; phones cannot connect (disables receipt scanning).",
+    )
     args = parser.parse_args()
+    app.config["LAN_ACCESS"] = not args.local
     if args.server:
         run_server()
     else:

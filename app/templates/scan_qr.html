@@ -11,6 +11,11 @@
       <div class="card-body py-4">
         <p class="text-muted small mb-3">{{ t('scan_qr_hint') }}</p>
 
+        {% if not config.LAN_ACCESS %}
+        <div class="alert alert-secondary small text-start py-2 mb-3">
+          <i class="fa-solid fa-lock me-1"></i>{{ t('scan_lan_off') }}
+        </div>
+        {% else %}
         <!-- QR code generated server-side (always the correct LAN IP, no CDN dependency) -->
         <div class="d-flex justify-content-center mb-3">
           <img src="{{ url_for('scan.qr_image') }}" alt="QR Code"
@@ -19,6 +24,7 @@
 
         <p class="text-muted x-small mb-1">{{ t('scan_qr_url') }}</p>
         <code class="text-info small">{{ scan_url }}</code>
+        {% endif %}
 
         <hr class="border-secondary my-3">
         <p class="text-muted x-small mb-0">

@@ -35,7 +35,7 @@
               <td class="text-muted small">{{ p.note or '—' }}</td>
               <td class="text-end pe-3">
                 <form method="post" action="{{ url_for('settings.budget_delete', period_id=p.id) }}"
-                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline">
+                      onsubmit="return confirm('{{ t('really_delete') }}')" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   {%- set last_entry = periods|length == 1 %}
                   <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" aria-label="{{ t('delete') }}"
                           title="{{ t('budget_last_entry') if last_entry else t('delete') }}"
@@ -64,7 +64,7 @@
         <span class="fw-semibold"><i class="fa-solid fa-plus me-2 text-success"></i>{{ t('budget_add_new') }}</span>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('settings.budget_add') }}">
+        <form method="post" action="{{ url_for('settings.budget_add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label text-muted small">{{ t('effective_from') }} <span class="text-danger">*</span></label>
             <input type="date" name="effective_from" required

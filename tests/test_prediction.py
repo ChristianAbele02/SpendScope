@@ -248,3 +248,59 @@ def test_front_loaded_history_lowers_the_forecast(ctx):
     front_loaded = seed((1, 2, 3, 4, 5, 6))
 
     assert front_loaded < spread
+
+
+def _simulated_counts(phi: float, periods: int, seed: int) -> tuple[list[dict[str, int]], list[float]]:
+    """Counts of three streams sharing a Gamma(1/φ, 1/φ) monthly factor (φ = 0: none)."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    rates = {"a": 0.5, "b": 0.2, "c": 0.1}
+    counts = []
+    for _ in range(periods):
+        u = rng.gamma(1 / phi, phi) if phi > 0 else 1.0
+        counts.append({st: int(rng.poisson(r * u * 30)) for st, r in rates.items()})
+    return counts, [30.0] * periods
+
+
+def test_shared_dispersion_recovers_the_factor_variance(monkeypatch):
+    monkeypatch.setattr(s, "_MAX_SHARED_DISPERSION", 0.5)  # off (0) by default
+    counts, exposures = _simulated_counts(phi=0.2, periods=2000, seed=1)
+    assert abs(s._shared_dispersion(counts, exposures) - 0.2) < 0.04
+
+
+def test_shared_dispersion_is_near_zero_for_independent_streams():
+    counts, exposures = _simulated_counts(phi=0.0, periods=2000, seed=2)
+    assert s._shared_dispersion(counts, exposures) < 0.01
+
+
+def test_shared_dispersion_needs_two_streams_and_periods():
+    assert s._shared_dispersion([{"a": 5}, {"a": 9}], [30.0, 30.0]) == 0.0
+    assert s._shared_dispersion([{"a": 5, "b": 2}], [30.0]) == 0.0
+    assert s._shared_dispersion([], []) == 0.0
+
+
+def test_shared_factor_correlates_stream_rates():
+    import numpy as np
+
+    streams = [s._Stream(alpha=6.0, beta=20.0, n=2, k=2.0, a=50.0, b=1000.0)] * 2
+    independent = s._draw_rates(streams, 5.0, 0.0, 20_000, np.random.default_rng(0))
+    shared = s._draw_rates(streams, 5.0, 0.3, 20_000, np.random.default_rng(0))
+    assert abs(np.corrcoef(independent)[0, 1]) < 0.03
+    assert np.corrcoef(shared)[0, 1] > 0.2
+
+
+def test_shared_factor_option_keeps_the_forecast_valid(ctx, monkeypatch):
+    # Front-loaded and co-moving history, then the factor forced on.
+    for month in (1, 2, 3):
+        for day in (2, 5, 9, 14, 20):
+            _add(date(2024, month, day), 40.0)
+            _add(date(2024, month, day), 30.0, store="Tanken", category="Tanken")
+    _add(date(2024, 4, 3), 40.0)
+    db.session.commit()
+    monkeypatch.setattr(s, "_MAX_SHARED_DISPERSION", 0.5)
+    result = s.get_prediction(2024, 4, today=TODAY)
+    assert result["has_prediction"]
+    assert result["ci_low_total"] >= 40.0
+    assert result["ci_low_total"] <= result["predicted_total"] <= result["ci_high_total"]
+    assert s.get_prediction(2024, 4, today=TODAY) == result  # still deterministic

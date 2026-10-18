@@ -52,7 +52,7 @@
         <span id="autoFilledBadge" class="badge bg-success d-none">{{ t('scan_auto_filled') }}</span>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('scan.save') }}" id="expenseForm">
+        <form method="post" action="{{ url_for('scan.save') }}" id="expenseForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label text-muted small">{{ t('date') }}
               <span class="badge d-none ms-1" id="confDate" style="font-size:0.65rem"></span>
@@ -195,6 +195,7 @@ processBtn.addEventListener('click', async () => {
   try {
     const resp = await fetch('{{ url_for("scan.process") }}', {
       method: 'POST',
+      headers: { 'X-CSRF-Token': {{ csrf_token() | tojson }} },
       body: formData,
     });
     const data = await resp.json();

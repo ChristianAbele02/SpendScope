@@ -12,7 +12,7 @@
         </h5>
       </div>
       <div class="card-body">
-        <form method="post">
+        <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label for="date" class="form-label text-muted small">{{ t('date') }}</label>
             <input type="date" id="date" name="date" value="{{ today }}"
@@ -80,12 +80,18 @@
       <div class="card-body text-center py-3">
         <p class="text-muted small mb-3">{{ t('scan_qr_hint_short') }}</p>
 
-        <!-- QR code — generated server-side with correct LAN IP -->
+        {% if not config.LAN_ACCESS %}
+        <div class="alert alert-secondary small text-start py-2 mb-3">
+          <i class="fa-solid fa-lock me-1"></i>{{ t('scan_lan_off') }}
+        </div>
+        {% else %}
+        <!-- QR code — generated server-side with correct LAN IP (and the pairing token) -->
         <div class="d-flex justify-content-center mb-3">
           <img src="{{ url_for('scan.qr_image') }}"
                alt="QR Code"
                style="background:#fff; padding:10px; border-radius:8px; width:260px; height:260px;">
         </div>
+        {% endif %}
 
         <a href="{{ url_for('scan.mobile') }}" class="btn btn-info btn-sm text-dark fw-semibold w-100 mb-2">
           <i class="fa-solid fa-mobile-screen me-2"></i>{{ t('scan_open_mobile') }}

@@ -18,7 +18,7 @@
         <span class="fw-semibold"><i class="fa-solid fa-upload me-2 text-warning"></i>{{ t('samples_upload') }}</span>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('scan.upload_sample') }}" enctype="multipart/form-data">
+        <form method="post" action="{{ url_for('scan.upload_sample') }}" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label text-muted small">{{ t('store') }} <span class="text-danger">*</span></label>
             <input type="text" name="store" required list="store-list"
@@ -97,7 +97,7 @@
                 <td class="pe-3">
                   <form method="post"
                         action="{{ url_for('scan.reanalyze_store', store=p.store) }}"
-                        class="d-inline">
+                        class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.75rem">
                       <i class="fa-solid fa-rotate me-1"></i>{{ t('samples_reanalyze') }}
                     </button>
@@ -194,7 +194,7 @@
 
       <div class="card-footer p-2 border-secondary">
         <form method="post" action="{{ url_for('scan.delete_sample', sample_id=s.id) }}"
-              onsubmit="return confirm('{{ t('really_delete') }}')" class="d-grid">
+              onsubmit="return confirm('{{ t('really_delete') }}')" class="d-grid"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-sm btn-outline-danger py-0" style="font-size:0.75rem">
             <i class="fa-solid fa-trash-can me-1"></i>{{ t('delete') }}
           </button>
