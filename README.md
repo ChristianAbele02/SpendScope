@@ -5,11 +5,26 @@
 **A private, self-hosted household budget book with receipt scanning and a Bayesian spending forecast.**
 
 [![CI](https://github.com/ChristianAbele02/SpendScope/actions/workflows/ci.yml/badge.svg)](https://github.com/ChristianAbele02/SpendScope/actions/workflows/ci.yml)
+[![Coverage ≥ 90%](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen)](https://github.com/ChristianAbele02/SpendScope/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<br>
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![SQLite](https://img.shields.io/badge/sqlite-local-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![NumPy](https://img.shields.io/badge/numpy-Monte%20Carlo-013243?logo=numpy&logoColor=white)](https://numpy.org/)
+[![SciPy](https://img.shields.io/badge/scipy-special-8CAAE6?logo=scipy&logoColor=white)](https://scipy.org/)
+[![Bootstrap](https://img.shields.io/badge/bootstrap-5.3-7952B3?logo=bootstrap&logoColor=white)](https://getbootstrap.com/)
+[![Chart.js](https://img.shields.io/badge/chart.js-4-FF6384?logo=chartdotjs&logoColor=white)](https://www.chartjs.org/)
+[![pywebview](https://img.shields.io/badge/pywebview-desktop%20window-1F6FEB)](https://pywebview.flowrl.com/)
+[![Tesseract OCR](https://img.shields.io/badge/tesseract-OCR-3B7DDD)](https://github.com/tesseract-ocr/tesseract)
+[![Claude API](https://img.shields.io/badge/claude-vision%20%28optional%29-D97757?logo=anthropic&logoColor=white)](https://docs.anthropic.com/)
+<br>
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+[![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-FAB040?logo=pre-commit&logoColor=white)](https://pre-commit.com/)
+[![uv](https://img.shields.io/badge/locks-uv-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
+[![PyInstaller](https://img.shields.io/badge/exe-PyInstaller-2B5B84)](https://pyinstaller.org/)
 
 Snap a receipt with your phone, confirm the pre-filled amount, and see how the month is going:
 money spent, budget left and the probability of going over.
