@@ -25,10 +25,11 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from flask import Flask, current_app
+from flask import Flask
 
 from app import db
 from app.models import AppSetting
+from config import APP_HOME
 
 logger = logging.getLogger(__name__)
 
@@ -156,11 +157,10 @@ def backup_dir(settings: BackupSettings | None = None) -> str | None:
 
 
 def _resolve_dir(directory: str) -> str:
-    """Absolute folder; relative paths are taken relative to the project root."""
+    """Absolute folder; relative paths are taken relative to the project root (or the exe)."""
     if os.path.isabs(directory):
         return os.path.normpath(directory)
-    root = os.path.dirname(current_app.root_path)
-    return os.path.normpath(os.path.join(root, directory))
+    return os.path.normpath(os.path.join(APP_HOME, directory))
 
 
 def _ensure_writable(directory: str) -> None:

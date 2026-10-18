@@ -4,24 +4,94 @@
                              falling back to server-only mode if pywebview is missing.
 ``python run.py --server``   runs only the web server (open it in a browser).
 ``--local``                  in either mode: listen on this PC only (no phone scanning).
+``--port N``                 use another port than 5000.
 ``flask --app run import-csv`` imports historical data.
+
+SpendScope.exe (scripts/build_exe.py) runs this same file with the same options.
+Log messages go to data/logs/spendscope.log (and the console, if there is one).
 """
 import argparse
 import logging
 import os
+import re
 import socket
+import sys
 import threading
 import time
+from logging.handlers import RotatingFileHandler
+from types import TracebackType
 
 import click
 
-from app import create_app
+from config import FROZEN, LOG_DIR
 
 logger = logging.getLogger(__name__)
 
+LOG_FILE_NAME = "spendscope.log"
+LOG_MAX_BYTES = 1_000_000
+LOG_BACKUP_COUNT = 3
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+# Chatty third-party loggers that would flood the log file at INFO level.
+_QUIET_LOGGERS = ("alembic.runtime.plugins",)
+
+
+class _PlainFormatter(logging.Formatter):
+    """Formatter that strips the terminal colour codes Werkzeug adds to its messages."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _ANSI_ESCAPE.sub("", super().format(record))
+
+
+def _configure_logging() -> None:
+    """Log to a rotating file in data/logs/ and, when there is one, the console."""
+    # A windowed exe has no console: sys.stdout/stderr are None, and Flask's
+    # start-up banner would fail writing to them.
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+    os.makedirs(LOG_DIR, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, LOG_FILE_NAME),
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(_PlainFormatter(LOG_FORMAT))
+    handlers: list[logging.Handler] = [file_handler]
+    if not FROZEN:
+        console = logging.StreamHandler()
+        console.setFormatter(logging.Formatter(LOG_FORMAT))
+        handlers.append(console)
+    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+    def log_uncaught(
+        exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
+    ) -> None:
+        logger.critical("Unhandled exception", exc_info=(exc_type, exc, tb))
+
+    def log_uncaught_in_thread(hook: threading.ExceptHookArgs) -> None:
+        logger.critical(
+            "Unhandled exception in thread %s",
+            hook.thread.name if hook.thread else "?",
+            exc_info=hook.exc_value or True,
+        )
+
+    sys.excepthook = log_uncaught
+    threading.excepthook = log_uncaught_in_thread
+
+
+if __name__ == "__main__":
+    _configure_logging()  # before create_app(), so migrations and backups are logged
+
+from app import create_app  # noqa: E402
+
 LAN_HOST = "0.0.0.0"     # reachable from the network so a paired phone can open /scan
 LOCAL_HOST = "127.0.0.1"  # --local: this PC only
-PORT = 5000
+DEFAULT_PORT = int(os.environ.get("SPENDSCOPE_PORT", 5000))
 WINDOW_TITLE = "SpendScope"
 WINDOW_SIZE = (1280, 860)
 WINDOW_MIN_SIZE = (900, 600)
@@ -29,6 +99,7 @@ SERVER_START_TIMEOUT_S = 10.0
 SERVER_POLL_INTERVAL_S = 0.1
 
 app = create_app()
+PORT = DEFAULT_PORT  # replaced by --port before the server starts
 
 
 @app.cli.command("import-csv")
@@ -117,12 +188,32 @@ def _wait_for_server(port: int, timeout: float) -> bool:
     return False
 
 
+def _port_in_use(port: int) -> bool:
+    """Whether something already accepts connections on localhost:port."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=SERVER_POLL_INTERVAL_S):
+            return True
+    except OSError:
+        return False
+
+
+def _show_error(message: str) -> None:
+    """Report a start-up problem: a message box on Windows, else the log only."""
+    logger.error(message)
+    if sys.platform == "win32":
+        import ctypes
+
+        mb_iconerror = 0x10
+        ctypes.windll.user32.MessageBoxW(None, message, WINDOW_TITLE, mb_iconerror)
+
+
 def run_desktop() -> None:
     """Open SpendScope in a native window; the server runs in a background thread.
 
     Unless started with --local, the server also listens on the network, so a
-    paired phone can scan receipts while the window is open. Closing the window ends the process (the thread is a daemon).
-    Falls back to :func:`run_server` if pywebview is not installed.
+    paired phone can scan receipts while the window is open. Closing the window
+    ends the process (the thread is a daemon). Falls back to :func:`run_server`
+    if pywebview is not installed.
     """
     try:
         import webview
@@ -144,7 +235,8 @@ def run_desktop() -> None:
     )
     server.start()
     if not _wait_for_server(PORT, SERVER_START_TIMEOUT_S):
-        raise RuntimeError(f"SpendScope server did not start on port {PORT}")
+        _show_error(f"The SpendScope server did not start on port {PORT}. See {LOG_DIR}.")
+        sys.exit(1)
 
     webview.settings["ALLOW_DOWNLOADS"] = True  # CSV/JSON export
     webview.create_window(
@@ -158,7 +250,6 @@ def run_desktop() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Start SpendScope.")
     parser.add_argument(
         "--server",
@@ -170,8 +261,21 @@ if __name__ == "__main__":
         action="store_true",
         help="Listen on this PC only; phones cannot connect (disables receipt scanning).",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to listen on (default {DEFAULT_PORT}, or SPENDSCOPE_PORT).",
+    )
     args = parser.parse_args()
+    PORT = args.port
     app.config["LAN_ACCESS"] = not args.local
+    if _port_in_use(PORT):
+        _show_error(
+            f"SpendScope is already running, or another program uses port {PORT}.\n"
+            f"Close it first, or start SpendScope with --port <number>."
+        )
+        sys.exit(1)
     if args.server:
         run_server()
     else:

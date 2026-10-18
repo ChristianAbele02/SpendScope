@@ -1,0 +1,30 @@
+{
+    // Terminal > Run Task...
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "SpendScope: build .exe",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["scripts/build_exe.py"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "SpendScope: checks (ruff, mypy, pytest)",
+            "type": "shell",
+            "command": "${command:python.interpreterPath} -m ruff check . ; ${command:python.interpreterPath} -m mypy ; ${command:python.interpreterPath} -m pytest",
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "SpendScope: back up database now",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "flask", "--app", "run", "backup"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        }
+    ]
+}

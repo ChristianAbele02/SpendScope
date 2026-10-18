@@ -10,6 +10,7 @@ env/
 *.egg-info/
 dist/
 build/
+SpendScope.exe
 
 # Tool caches
 .ruff_cache/
@@ -25,13 +26,16 @@ data/*.sqlite
 data/receipt_samples/
 data/backups/
 data/secret_key
+data/logs/
 
 # Claude context and local settings
 CLAUDE.md
 .claude/
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
 .idea/
 *.swp
 *.swo

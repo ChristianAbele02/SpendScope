@@ -39,6 +39,10 @@ llm = [
 desktop = [
     "pywebview>=5.0",
 ]
+# Windows .exe build (scripts/build_exe.py); not part of the lock files.
+build = [
+    "pyinstaller>=6.10",
+]
 
 [tool.setuptools]
 packages = ["app", "app.routes"]

@@ -75,6 +75,32 @@ network side completely.
 > [pywebview installation guide](https://pywebview.flowrl.com/guide/installation.html).
 > `--server` works everywhere.
 
+### Ways to start it
+
+| How | Command | Notes |
+|---|---|---|
+| **Windows app** | double-click `SpendScope.exe` | Build it once (below); pin it to the taskbar or create a desktop shortcut |
+| **Terminal** | `python run.py` | Add `--server`, `--local` or `--port 5001` as needed |
+| **VS Code** | Run and Debug (F5) | Configurations for the desktop window, server, server on this PC only, and the tests |
+
+All three accept the same options (`SpendScope.exe --server --local` works too) and use the same
+`data/` folder. Only one copy can run at a time; a second start shows a message instead of
+failing silently. Log messages go to `data/logs/spendscope.log`.
+
+### Building SpendScope.exe
+
+```powershell
+pip install -e ".[build]"         # PyInstaller
+python scripts\build_exe.py       # writes SpendScope.exe to the project root
+```
+
+The exe is a single file (about 100 MB, because Python, numpy and scipy are inside) and needs no
+Python installation. It starts in a few seconds, since it unpacks itself on every start. In the
+project root it shares `data/` with `python run.py`; copied anywhere else it creates its own
+`data/` folder next to itself, or uses the folder in `SPENDSCOPE_DATA_DIR`. VS Code also has a task
+for the build (**Terminal → Run Task → SpendScope: build .exe**). Some antivirus programs distrust
+freshly built, unsigned exes; if yours blocks it, add an exception or use `python run.py`.
+
 > [!TIP]
 > The database (`data/expenses.db`) is created on first start, migrated to the latest schema on every
 > start and seeded with the default budget rules. Before any schema change touches an existing
@@ -172,6 +198,8 @@ All settings live in [`config.py`](config.py) and can be overridden with environ
 | `RECEIPT_EXTRACTION_BACKEND` | `auto` | `auto`, `claude` or `tesseract` |
 | `RECEIPT_EXTRACTION_MODEL` | `claude-opus-4-8` | Vision model; `claude-haiku-4-5` is cheaper |
 | `TESSERACT_CMD` | UB Mannheim path | Tesseract binary; falls back to `PATH` if missing |
+| `SPENDSCOPE_DATA_DIR` | `data/` next to `run.py` or the exe | Folder for the database, backups, logs and session key |
+| `SPENDSCOPE_PORT` | `5000` | Port (same as `--port`) |
 | `DATABASE_URL` | `sqlite:///data/expenses.db` | SQLAlchemy database URI |
 | `RECEIPT_SAMPLES_DIR` | `data/receipt_samples` | Where reference receipt images are stored |
 | `SECRET_KEY` | generated | Signs the session cookie; created once and kept in `data/secret_key` when unset |
@@ -265,7 +293,7 @@ cannot raise its own threshold. The tooltip shows the probability and the typica
 
 ```text
 SpendScope/
-├── run.py                  # Entry point (desktop window / --server) and `import-csv` CLI
+├── run.py                  # Entry point (desktop window / --server), logging, CLI commands
 ├── config.py               # Settings (env-overridable) and budget seed
 ├── app/
 │   ├── __init__.py         # App factory, template globals
@@ -283,7 +311,8 @@ SpendScope/
 │   ├── templates/          # Jinja2 templates (Bootstrap 5 dark)
 │   └── static/             # app.js (popups, fetch errors), charts.js, style.css, vendored libs
 ├── migrations/             # Alembic schema migrations (Flask-Migrate)
-├── scripts/                # backtest_forecast.py (forecast evaluation)
+├── scripts/                # backtest_forecast.py (forecast evaluation), build_exe.py
+├── .vscode/                # launch configurations and tasks (personal settings stay ignored)
 ├── tests/                  # pytest suite (isolated temporary database)
 ├── requirements.txt        # pinned runtime lock (uv pip compile)
 ├── requirements-dev.txt    # pinned runtime + dev lock

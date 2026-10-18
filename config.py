@@ -4,11 +4,22 @@ Every setting can be overridden with an environment variable of the same name,
 so the defaults below only need editing for a permanent local change.
 """
 import os
+import sys
 from datetime import date
 
+# Inside the PyInstaller build (SpendScope.exe) the code runs from a temporary
+# folder (sys._MEIPASS) that is deleted on exit, so user data must live next to
+# the exe instead. scripts/build_exe.py puts the exe in the project root, so the
+# exe and `python run.py` share the same data/ folder.
+FROZEN = bool(getattr(sys, "frozen", False))
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-MIGRATIONS_DIR = os.path.join(BASE_DIR, "migrations")
+# Read-only resources shipped with the app (migrations, templates, static files).
+RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
+# Folder for user files: the exe's folder when frozen, else the project root.
+APP_HOME = os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else BASE_DIR
+DATA_DIR = os.environ.get("SPENDSCOPE_DATA_DIR") or os.path.join(APP_HOME, "data")
+MIGRATIONS_DIR = os.path.join(RESOURCE_DIR, "migrations")
+LOG_DIR = os.path.join(DATA_DIR, "logs")
 
 
 class Config:
@@ -38,7 +49,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Historical CSV read by /import and `flask import-csv`. It is only ever read.
-    CSV_PATH = os.path.join(BASE_DIR, "expenses_raw.csv")
+    CSV_PATH = os.path.join(APP_HOME, "expenses_raw.csv")
 
     # Reference receipt images uploaded at /scan/samples.
     RECEIPT_SAMPLES_DIR: str = os.environ.get(
