@@ -16,6 +16,7 @@ money spent, budget left and the probability of going over.
 
 [Features](#-features) ·
 [Quick start](#-quick-start) ·
+[Backups](#backups) ·
 [Receipt scanning](#-receipt-scanning) ·
 [Configuration](#%EF%B8%8F-configuration) ·
 [How the forecast works](#-how-the-forecast-works) ·
@@ -40,6 +41,7 @@ money spent, budget left and the probability of going over.
 | 🏷️ **Auto-categorisation** | Store names mapped to categories by keyword; override per entry or in bulk |
 | 🔗 **Store aliases** | Merge spellings ("REWE Markt" → "Rewe") for display and statistics without rewriting stored data |
 | 🧠 **Receipt sample DB** | Upload reference receipts per store; the OCR parser learns which keyword marks the total |
+| 🖥️ **Windows app** | Native window via `python run.py`, a double-clickable `SpendScope.exe`, or VS Code; messages and errors as popups |
 | 🌍 **DE / EN** | Complete German and English interface, including locale-aware currency formatting |
 
 Everything runs locally: one SQLite file, no account, no cloud service required.
@@ -94,8 +96,9 @@ pip install -e ".[build]"         # PyInstaller
 python scripts\build_exe.py       # writes SpendScope.exe to the project root
 ```
 
-The exe is a single file (about 100 MB, because Python, numpy and scipy are inside) and needs no
-Python installation. It starts in a few seconds, since it unpacks itself on every start. In the
+The exe is a single file (about 70 MB, because Python, numpy and scipy are inside) and needs no
+Python installation. It unpacks itself on every start, so the window takes about 3 seconds to
+appear. In the
 project root it shares `data/` with `python run.py`; copied anywhere else it creates its own
 `data/` folder next to itself, or uses the folder in `SPENDSCOPE_DATA_DIR`. VS Code also has a task
 for the build (**Terminal → Run Task → SpendScope: build .exe**). Some antivirus programs distrust
@@ -243,7 +246,8 @@ the interval score within 1%, too small a difference on 12 periods to justify sw
 monthly factor, so that a busy week of groceries raises the fuel forecast too. Its variance is
 estimated from how strongly purchase counts of different categories move together. It is
 **off by default**: in the backtest it widened the intervals and scored worse on both the tuning
-and the holdout periods (see below). `--tune` keeps testing it as more data comes in.
+and the holdout periods (see below). To test it again later, add `_MAX_SHARED_DISPERSION` back
+to `TUNING_GRID` in the backtest script.
 
 ### Checking the forecast
 
@@ -257,9 +261,10 @@ python scripts\backtest_forecast.py                # score the shipped model
 python scripts\backtest_forecast.py --tune         # choose hyperparameters, check on a holdout
 ```
 
-`--tune` grid-searches the prior strengths and the shared factor using **only the earlier
-periods**, then scores the winner and the shipped settings on the **last 12 periods**, which the
-search never saw. The shipped prior strengths came out of that procedure. Interval scores on the
+`--tune` grid-searches the hyperparameters in `TUNING_GRID` (currently the recency half-life,
+the history length and the prior strengths) using **only the earlier periods**, then scores the
+winner and the shipped settings on the **last 12 periods**, which the search never saw. The
+shipped prior strengths came out of that procedure. Interval scores on the
 owner's data (lower is better; 51 periods, 4 cut-off days each):
 
 | Settings | Earlier 39 periods (tuning) | Last 12 periods (holdout) |
@@ -312,11 +317,13 @@ SpendScope/
 │   └── static/             # app.js (popups, fetch errors), charts.js, style.css, vendored libs
 ├── migrations/             # Alembic schema migrations (Flask-Migrate)
 ├── scripts/                # backtest_forecast.py (forecast evaluation), build_exe.py
-├── .vscode/                # launch configurations and tasks (personal settings stay ignored)
 ├── tests/                  # pytest suite (isolated temporary database)
+├── .github/workflows/      # ci.yml (every push), dependency-check.yml (monthly)
+├── .vscode/                # launch configurations and tasks (personal settings stay ignored)
+├── .pre-commit-config.yaml # checks before every commit
 ├── requirements.txt        # pinned runtime lock (uv pip compile)
 ├── requirements-dev.txt    # pinned runtime + dev lock
-└── data/                   # expenses.db, receipt samples, backups (git-ignored)
+└── data/                   # git-ignored: expenses.db, backups/, logs/, receipt_samples/, secret_key
 ```
 
 ### Categories
@@ -352,13 +359,17 @@ python scripts\backtest_forecast.py   # score the forecast on past periods (read
 
 GitHub Actions runs ruff, mypy (every function must be annotated) and pytest with branch coverage
 on Python 3.11 and 3.12 with the pinned dev lock for every push and pull request; the run fails
-below 90% coverage and shows the coverage table in its summary. The backtest needs a real database, so it runs locally only.
+below 90% coverage and shows the coverage table in its summary. The backtest needs a real
+database, so it runs locally only.
+
 Dependency updates are done manually by regenerating the lock files (below). To know when that
 is worth doing, a second workflow ([`dependency-check.yml`](.github/workflows/dependency-check.yml))
 runs on the 1st of every month (or via **Run workflow** on the Actions page): it installs the newest
 versions allowed by `pyproject.toml`, lists the packages that are newer than the lock in the run
 summary and runs all checks. If they fail, it opens an issue labelled `dependencies` instead of a
 pull request; the repository itself is never changed.
+
+### Conventions
 
 Messages and errors appear as popups (Bootstrap toasts): `flash()` on the server, `showToast()`
 or `fetchJSON()` (which turns failed requests into popups) in the browser. [`app/errors.py`](app/errors.py)
