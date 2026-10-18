@@ -353,7 +353,12 @@ python scripts\backtest_forecast.py   # score the forecast on past periods (read
 GitHub Actions runs ruff, mypy (every function must be annotated) and pytest with branch coverage
 on Python 3.11 and 3.12 with the pinned dev lock for every push and pull request; the run fails
 below 90% coverage and shows the coverage table in its summary. The backtest needs a real database, so it runs locally only.
-Dependency updates are done manually by regenerating the lock files (below).
+Dependency updates are done manually by regenerating the lock files (below). To know when that
+is worth doing, a second workflow ([`dependency-check.yml`](.github/workflows/dependency-check.yml))
+runs on the 1st of every month (or via **Run workflow** on the Actions page): it installs the newest
+versions allowed by `pyproject.toml`, lists the packages that are newer than the lock in the run
+summary and runs all checks. If they fail, it opens an issue labelled `dependencies` instead of a
+pull request; the repository itself is never changed.
 
 Messages and errors appear as popups (Bootstrap toasts): `flash()` on the server, `showToast()`
 or `fetchJSON()` (which turns failed requests into popups) in the browser. [`app/errors.py`](app/errors.py)
