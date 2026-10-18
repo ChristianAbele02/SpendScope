@@ -105,7 +105,7 @@ def get_category(store: str, detail: str | None = None) -> str:
     return DEFAULT_CATEGORY
 
 
-def _parse_date(value) -> date | None:
+def _parse_date(value: object) -> date | None:
     """Parse DD/MM/YYYY. Returns None for empty or placeholder values."""
     if not value or not isinstance(value, str):
         return None
@@ -140,7 +140,7 @@ def _read_csv_rows(csv_path: str) -> list[dict[str, str]]:
         ]
 
 
-def _dedupe_key(date_val, store: str, amount: float) -> tuple:
+def _dedupe_key(date_val: date | None, store: str, amount: float) -> tuple[date | None, str, float]:
     """Identity used to detect a row already present in the database."""
     return (date_val, store, round(amount, 2))
 

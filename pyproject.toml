@@ -74,10 +74,10 @@ ignore_missing_imports = true   # Flask-SQLAlchemy / Flask-Migrate ship no stubs
 warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
-# The codebase is not fully annotated yet; check what is typed without forcing
-# annotations everywhere. Tighten these over time.
-check_untyped_defs = false
-disallow_untyped_defs = false
+# Every function must be fully annotated, and function bodies are checked.
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 exclude = ["venv", "tests"]
 
 # Flask-SQLAlchemy exposes db.Model as a dynamic attribute mypy cannot resolve

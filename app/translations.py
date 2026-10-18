@@ -3,6 +3,8 @@
 Every key must exist in both dictionaries (enforced by tests/test_translations.py).
 Placeholders are positional ``{}`` markers filled by ``t(key, *args)``.
 """
+from typing import Any
+
 from flask import has_request_context, session
 
 TRANSLATIONS: dict[str, dict] = {
@@ -684,7 +686,7 @@ def get_lang() -> str:
     return session.get("lang", DEFAULT_LANG)
 
 
-def format_eur(value, decimals: int = 2) -> str:
+def format_eur(value: Any, decimals: int = 2) -> str:
     """Format a number as euros with locale-appropriate grouping.
 
     German (de): ``1.234,56 €`` (dot thousands, comma decimal, trailing sign).
@@ -705,7 +707,7 @@ def format_eur(value, decimals: int = 2) -> str:
     return f"{sign}€{grouped}"
 
 
-def format_pct(value, decimals: int = 1) -> str:
+def format_pct(value: Any, decimals: int = 1) -> str:
     """Format a percentage with the locale's decimal separator.
 
     German (de): ``0,4 %``; English (en): ``0.4%``. Values that would round to
@@ -724,7 +726,7 @@ def format_pct(value, decimals: int = 1) -> str:
     return f"{prefix}{text}%"
 
 
-def t(key: str, *args) -> str:
+def t(key: str, *args: object) -> str:
     """Translate ``key`` for the current language and fill ``{}`` placeholders.
 
     Falls back to the German string, then to the key itself. Arguments are

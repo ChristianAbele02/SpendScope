@@ -34,6 +34,7 @@ from flask import (
     send_file,
     url_for,
 )
+from flask.typing import ResponseReturnValue
 
 from app import db, extraction, security
 from app.forms import read_expense_form
@@ -339,19 +340,19 @@ def _tesseract_fields(parsed: dict, text: str) -> dict:
 # ── Scan routes ───────────────────────────────────────────────────────────────
 
 @scan.route("/")
-def mobile():
+def mobile() -> ResponseReturnValue:
     """Mobile receipt capture page."""
     return render_template("scan_mobile.html")
 
 
 @scan.route("/qr")
-def qr_page():
+def qr_page() -> ResponseReturnValue:
     """Desktop page showing a large QR code for the scan URL."""
     return render_template("scan_qr.html", scan_url=_scan_url())
 
 
 @scan.route("/qr-image")
-def qr_image():
+def qr_image() -> ResponseReturnValue:
     """QR code PNG for the scan URL, generated server-side with the LAN IP."""
     import qrcode
 
@@ -364,7 +365,7 @@ def qr_image():
 
 
 @scan.route("/process", methods=["POST"])
-def process():
+def process() -> ResponseReturnValue:
     """Extract expense fields from an uploaded receipt image.
 
     Tries the Claude vision backend first (when configured), then falls back
@@ -395,7 +396,7 @@ def process():
 
 
 @scan.route("/save", methods=["POST"])
-def save():
+def save() -> ResponseReturnValue:
     """Save the expense confirmed on the phone."""
     values, errors = read_expense_form(request.form)
     if errors:
@@ -481,7 +482,7 @@ def _get_store_profile(store: str | None) -> dict | None:
 
 
 @scan.route("/samples")
-def samples():
+def samples() -> ResponseReturnValue:
     """Sample upload form, learned profiles and the sample gallery."""
     all_samples = ReceiptSample.query.order_by(ReceiptSample.uploaded_at.desc()).all()
     return render_template(
@@ -493,7 +494,7 @@ def samples():
 
 
 @scan.route("/samples/upload", methods=["POST"])
-def upload_sample():
+def upload_sample() -> ResponseReturnValue:
     """Store a reference receipt, OCR it and rebuild the store's profile."""
     store = request.form.get("store", "").strip()
     notes = request.form.get("notes", "").strip() or None
@@ -548,7 +549,7 @@ def upload_sample():
 
 
 @scan.route("/samples/<int:sample_id>/delete", methods=["POST"])
-def delete_sample(sample_id: int):
+def delete_sample(sample_id: int) -> ResponseReturnValue:
     """Delete a sample and its image, then rebuild the store's profile."""
     sample = db.get_or_404(ReceiptSample, sample_id)
     store = sample.store
@@ -563,7 +564,7 @@ def delete_sample(sample_id: int):
 
 
 @scan.route("/samples/image/<int:sample_id>")
-def sample_image(sample_id: int):
+def sample_image(sample_id: int) -> ResponseReturnValue:
     """Serve a stored sample image."""
     sample = db.get_or_404(ReceiptSample, sample_id)
     img_path = os.path.join(_samples_dir(), sample.image_filename)
@@ -573,7 +574,7 @@ def sample_image(sample_id: int):
 
 
 @scan.route("/samples/<path:store>/reanalyze", methods=["POST"])
-def reanalyze_store(store: str):
+def reanalyze_store(store: str) -> ResponseReturnValue:
     """Rebuild one store's profile from its existing samples."""
     _build_store_profile(store)
     n = ReceiptSample.query.filter_by(store=store).filter(ReceiptSample.ocr_text.isnot(None)).count()

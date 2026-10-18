@@ -20,6 +20,7 @@ import json
 import logging
 import os
 from datetime import date, timedelta
+from typing import Any
 
 from flask import current_app
 
@@ -131,7 +132,7 @@ def _prepare_image(image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-def _clamp01(value) -> float:
+def _clamp01(value: Any) -> float:
     """Coerce a model-reported confidence to a float in [0, 1]."""
     try:
         return max(0.0, min(1.0, float(value)))
@@ -197,7 +198,9 @@ def _normalise_claude_result(data: dict, today: date | None = None) -> dict:
     return result
 
 
-def extract_with_claude(image_bytes: bytes, client=None) -> tuple[dict | None, str | None]:
+def extract_with_claude(
+    image_bytes: bytes, client: Any = None
+) -> tuple[dict | None, str | None]:
     """Extract receipt fields with the Claude vision API.
 
     Args:

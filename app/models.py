@@ -1,8 +1,11 @@
 """SQLAlchemy models."""
 import json
 from datetime import UTC, datetime
+from typing import TypeVar
 
 from app import db
+
+T = TypeVar("T")
 
 
 def _utcnow() -> datetime:
@@ -10,7 +13,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _load_json(raw: str | None, default):
+def _load_json(raw: str | None, default: T) -> T:
     """Decode a JSON text column, returning ``default`` for empty or corrupt values."""
     try:
         return json.loads(raw) if raw else default

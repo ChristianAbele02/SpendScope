@@ -14,6 +14,7 @@ import numpy as np
 from flask import current_app, g, has_request_context
 from scipy.special import betainc
 from sqlalchemy import func
+from sqlalchemy.orm import Query
 
 from app import db
 from app.models import BudgetPeriod, CategoryBudget, Expense, StoreAlias
@@ -189,7 +190,7 @@ def get_distinct_stores() -> list[str]:
 
 # ── Period summaries ──────────────────────────────────────────────────────────
 
-def _filter_period(q, year: int | None, month: int | None):
+def _filter_period(q: Query, year: int | None, month: int | None) -> Query:
     """Restrict a query to one period (year + month), a whole year, or nothing."""
     if year and month:
         start, end = period_bounds(year, month)

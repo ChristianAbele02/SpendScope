@@ -2,6 +2,7 @@
 from datetime import date
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
+from flask.typing import ResponseReturnValue
 
 from app import backup, db
 from app import stats as s
@@ -22,14 +23,14 @@ def _positive_amount(value: str | None) -> float | None:
 # ── Budget periods ────────────────────────────────────────────────────────────
 
 @settings.route("/budget")
-def budget():
+def budget() -> ResponseReturnValue:
     """List budget rules and the form to add one."""
     periods = BudgetPeriod.query.order_by(BudgetPeriod.effective_from.desc()).all()
     return render_template("settings_budget.html", periods=periods)
 
 
 @settings.route("/budget/add", methods=["POST"])
-def budget_add():
+def budget_add() -> ResponseReturnValue:
     """Add a budget rule; one rule per effective date."""
     back = redirect(url_for("settings.budget"))
     try:
@@ -61,7 +62,7 @@ def budget_add():
 
 
 @settings.route("/budget/delete/<int:period_id>", methods=["POST"])
-def budget_delete(period_id: int):
+def budget_delete(period_id: int) -> ResponseReturnValue:
     """Delete a budget rule, keeping at least one."""
     if BudgetPeriod.query.count() <= 1:
         flash(t("flash_budget_keep_one"), "warning")
@@ -76,7 +77,7 @@ def budget_delete(period_id: int):
 # ── Category limits ───────────────────────────────────────────────────────────
 
 @settings.route("/category-budgets")
-def category_budgets():
+def category_budgets() -> ResponseReturnValue:
     """List category limits and the form to set one."""
     return render_template(
         "settings_category_budget.html",
@@ -86,7 +87,7 @@ def category_budgets():
 
 
 @settings.route("/category-budgets/set", methods=["POST"])
-def category_budget_set():
+def category_budget_set() -> ResponseReturnValue:
     """Create or update the monthly limit for a category."""
     back = redirect(url_for("settings.category_budgets"))
     category = request.form.get("category", "").strip()
@@ -111,7 +112,7 @@ def category_budget_set():
 
 
 @settings.route("/category-budgets/<int:limit_id>/delete", methods=["POST"])
-def category_budget_delete(limit_id: int):
+def category_budget_delete(limit_id: int) -> ResponseReturnValue:
     """Remove a category limit."""
     db.session.delete(db.get_or_404(CategoryBudget, limit_id))
     db.session.commit()
@@ -122,7 +123,7 @@ def category_budget_delete(limit_id: int):
 # ── Store aliases ─────────────────────────────────────────────────────────────
 
 @settings.route("/store-aliases")
-def store_aliases():
+def store_aliases() -> ResponseReturnValue:
     """List aliases and the form to add one."""
     return render_template(
         "settings_store_aliases.html",
@@ -132,7 +133,7 @@ def store_aliases():
 
 
 @settings.route("/store-aliases/add", methods=["POST"])
-def store_alias_add():
+def store_alias_add() -> ResponseReturnValue:
     """Create or update an alias (raw name → display name)."""
     back = redirect(url_for("settings.store_aliases"))
     alias = request.form.get("alias", "").strip()
@@ -157,7 +158,7 @@ def store_alias_add():
 
 
 @settings.route("/store-aliases/<int:alias_id>/delete", methods=["POST"])
-def store_alias_delete(alias_id: int):
+def store_alias_delete(alias_id: int) -> ResponseReturnValue:
     """Remove an alias."""
     db.session.delete(db.get_or_404(StoreAlias, alias_id))
     db.session.commit()
@@ -167,12 +168,13 @@ def store_alias_delete(alias_id: int):
 
 # ── Backups ───────────────────────────────────────────────────────────────────
 
-def _backups_page():
+def _backups_page() -> ResponseReturnValue:
+    """Redirect to the backups page (after every backup action)."""
     return redirect(url_for("settings.backups"))
 
 
 @settings.route("/backups")
-def backups():
+def backups() -> ResponseReturnValue:
     """Backup settings, the "back up now" button and the list of backups."""
     current = backup.load_settings()
     sqlite = backup.database_path() is not None
@@ -191,7 +193,7 @@ def backups():
 
 
 @settings.route("/backups/settings", methods=["POST"])
-def backup_settings_save():
+def backup_settings_save() -> ResponseReturnValue:
     """Store the backup settings after validating them."""
     try:
         interval = int(request.form.get("interval_hours", ""))
@@ -218,7 +220,7 @@ def backup_settings_save():
 
 
 @settings.route("/backups/create", methods=["POST"])
-def backup_create():
+def backup_create() -> ResponseReturnValue:
     """Make a manual backup now."""
     try:
         info = backup.create_backup(backup.REASON_MANUAL)
@@ -230,7 +232,7 @@ def backup_create():
 
 
 @settings.route("/backups/<name>/download")
-def backup_download(name: str):
+def backup_download(name: str) -> ResponseReturnValue:
     """Send a backup file to the browser."""
     info = backup.find_backup(name)
     if info is None:
@@ -239,7 +241,7 @@ def backup_download(name: str):
 
 
 @settings.route("/backups/<name>/restore", methods=["POST"])
-def backup_restore(name: str):
+def backup_restore(name: str) -> ResponseReturnValue:
     """Replace the database with a backup (the current state is saved first)."""
     try:
         info = backup.restore_backup(name)
@@ -251,7 +253,7 @@ def backup_restore(name: str):
 
 
 @settings.route("/backups/<name>/delete", methods=["POST"])
-def backup_delete(name: str):
+def backup_delete(name: str) -> ResponseReturnValue:
     """Delete one backup file."""
     if backup.delete_backup(name):
         flash(t("flash_backup_deleted"), "success")

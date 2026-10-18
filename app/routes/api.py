@@ -1,5 +1,6 @@
 """JSON endpoints consumed by the Chart.js charts."""
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
+from flask.typing import ResponseReturnValue
 
 from app import stats as s
 from app.translations import t
@@ -19,7 +20,9 @@ def _valid_year_month(year: int | None, month: int | None) -> bool:
     return month is None or 1 <= month <= 12
 
 
-def _year_month_args(required: bool = False):
+def _year_month_args(
+    required: bool = False,
+) -> tuple[int | None, int | None, ResponseReturnValue | None]:
     """Read ``year``/``month`` query args.
 
     Returns:
@@ -36,7 +39,7 @@ def _year_month_args(required: bool = False):
 
 
 @api.route("/monthly-trends")
-def monthly_trends():
+def monthly_trends() -> ResponseReturnValue:
     """Per-period totals vs. budget; ``?years=2023,2024`` restricts the years."""
     year_param = request.args.get("years")
     years = [int(y) for y in year_param.split(",") if y.strip().isdigit()] if year_param else None
@@ -44,14 +47,14 @@ def monthly_trends():
 
 
 @api.route("/category-breakdown")
-def category_breakdown():
+def category_breakdown() -> ResponseReturnValue:
     """Spend per category for a period, a year, or all time."""
     year, month, error = _year_month_args()
     return error or jsonify(s.get_category_breakdown(year, month))
 
 
 @api.route("/store-breakdown")
-def store_breakdown():
+def store_breakdown() -> ResponseReturnValue:
     """Top stores for a period, a year, or all time (``?limit=`` defaults to 10)."""
     year, month, error = _year_month_args()
     limit = request.args.get("limit", 10, type=int)
@@ -59,32 +62,36 @@ def store_breakdown():
 
 
 @api.route("/monthly-summary")
-def monthly_summary():
+def monthly_summary() -> ResponseReturnValue:
     """Total, budget and remaining budget for one period."""
     year, month, error = _year_month_args(required=True)
-    return error or jsonify(s.get_monthly_summary(year, month))
+    if error is not None or year is None or month is None:
+        return error or abort(400)  # required=True guarantees year and month
+    return jsonify(s.get_monthly_summary(year, month))
 
 
 @api.route("/prediction")
-def prediction():
+def prediction() -> ResponseReturnValue:
     """Bayesian end-of-period forecast (only for the current period)."""
     year, month, error = _year_month_args(required=True)
-    return error or jsonify(s.get_prediction(year, month))
+    if error is not None or year is None or month is None:
+        return error or abort(400)  # required=True guarantees year and month
+    return jsonify(s.get_prediction(year, month))
 
 
 @api.route("/yearly-comparison")
-def yearly_comparison():
+def yearly_comparison() -> ResponseReturnValue:
     """Per-period totals grouped by year."""
     return jsonify(s.get_yearly_comparison())
 
 
 @api.route("/category-trends")
-def category_trends():
+def category_trends() -> ResponseReturnValue:
     """Category totals per period."""
     return jsonify(s.get_category_trends())
 
 
 @api.route("/overall-stats")
-def overall_stats():
+def overall_stats() -> ResponseReturnValue:
     """All-time headline numbers."""
     return jsonify(s.get_overall_stats())

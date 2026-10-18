@@ -3,6 +3,7 @@ import csv
 import io
 import json
 from datetime import date
+from typing import overload
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from flask import (
@@ -16,6 +17,8 @@ from flask import (
     session,
     url_for,
 )
+from flask.typing import ResponseReturnValue
+from flask_sqlalchemy.query import Query
 
 from app import db
 from app import stats as s
@@ -40,8 +43,14 @@ _STATS_TRIP_LOOKBACK_DAYS = 365
 _EXPENSE_FIELDS = ("date", "store", "store_detail", "amount", "category", "notes")
 
 
-def _safe_int(value, default: int | None = None) -> int | None:
+@overload
+def _safe_int(value: str | int | None, default: int) -> int: ...
+@overload
+def _safe_int(value: str | int | None, default: None = None) -> int | None: ...
+def _safe_int(value: str | int | None, default: int | None = None) -> int | None:
     """Parse an int from user input, returning ``default`` instead of raising."""
+    if value is None:
+        return default
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -59,7 +68,9 @@ def _filter_args() -> dict[str, str]:
     }
 
 
-def _apply_expense_filters(q, year: str, month: str, category: str, store: str, search: str):
+def _apply_expense_filters(
+    q: Query, year: str, month: str, category: str, store: str, search: str
+) -> Query:
     """Apply the expense list/export filters to an Expense query.
 
     Non-numeric or out-of-range year/month values are ignored rather than
@@ -112,7 +123,7 @@ def _flash_errors(error_keys: list[str]) -> None:
 # ── Dashboard & statistics ────────────────────────────────────────────────────
 
 @main.route("/")
-def dashboard():
+def dashboard() -> ResponseReturnValue:
     """Current (or selected) budget period: KPIs, forecast, charts, recent entries."""
     today = date.today()
     cur_year, cur_month = s.period_for_date(today)
@@ -160,7 +171,7 @@ def dashboard():
 
 
 @main.route("/statistics")
-def statistics():
+def statistics() -> ResponseReturnValue:
     """All-time KPIs, best/worst periods and shopping intervals."""
     return render_template(
         "statistics.html",
@@ -176,7 +187,7 @@ def statistics():
 # ── Expense list, export ──────────────────────────────────────────────────────
 
 @main.route("/expenses")
-def expenses():
+def expenses() -> ResponseReturnValue:
     """Paginated, filterable expense table with edit modal and undo history."""
     page = max(1, _safe_int(request.args.get("page"), 1))
     filters = _filter_args()
@@ -220,7 +231,7 @@ def expenses():
 
 
 @main.route("/expenses/export")
-def export_expenses():
+def export_expenses() -> ResponseReturnValue:
     """Download the currently filtered expenses as CSV (default) or JSON."""
     q = _apply_expense_filters(Expense.query, **_filter_args())
     rows = q.order_by(Expense.date.desc().nullslast(), Expense.id.desc()).all()
@@ -254,7 +265,7 @@ def export_expenses():
 # ── Add / edit / delete ───────────────────────────────────────────────────────
 
 @main.route("/add", methods=["GET", "POST"])
-def add_expense():
+def add_expense() -> ResponseReturnValue:
     """Manual entry form (plus the QR code for phone scanning)."""
     if request.method == "POST":
         values, errors = read_expense_form(request.form)
@@ -272,7 +283,7 @@ def add_expense():
 
 
 @main.route("/expense/<int:expense_id>/edit", methods=["POST"])
-def edit_expense(expense_id: int):
+def edit_expense(expense_id: int) -> ResponseReturnValue:
     """Save the edit modal, log the change and offer a bulk category update."""
     expense = db.get_or_404(Expense, expense_id)
     next_url = safe_next_url(request.form.get("_next"), url_for("main.expenses"))
@@ -331,7 +342,7 @@ def edit_expense(expense_id: int):
 
 
 @main.route("/expense/bulk-category", methods=["POST"])
-def bulk_category():
+def bulk_category() -> ResponseReturnValue:
     """Move every entry of a store from one category to another (undoable)."""
     store = request.form.get("store", "").strip()
     category = request.form.get("category", "").strip()
@@ -389,7 +400,7 @@ def _has_newer_conflicting_change(log: ChangeLog) -> bool:
 
 
 @main.route("/expense/undo/<int:log_id>", methods=["POST"])
-def undo_change(log_id: int):
+def undo_change(log_id: int) -> ResponseReturnValue:
     """Reverse one logged edit, bulk category change or deletion."""
     next_url = safe_next_url(request.form.get("_next"), url_for("main.expenses"))
     log = db.get_or_404(ChangeLog, log_id)
@@ -448,7 +459,7 @@ def undo_change(log_id: int):
 
 
 @main.route("/expense/<int:expense_id>/delete", methods=["POST"])
-def delete_expense(expense_id: int):
+def delete_expense(expense_id: int) -> ResponseReturnValue:
     """Delete a single expense, keeping a snapshot in the undo log."""
     expense = db.get_or_404(Expense, expense_id)
     db.session.add(ChangeLog(
@@ -465,7 +476,7 @@ def delete_expense(expense_id: int):
 # ── Misc ──────────────────────────────────────────────────────────────────────
 
 @main.route("/lang/<code>")
-def set_lang(code: str):
+def set_lang(code: str) -> ResponseReturnValue:
     """Switch the UI language and return to the previous page."""
     if code in SUPPORTED_LANGS:
         session["lang"] = code
@@ -473,7 +484,7 @@ def set_lang(code: str):
 
 
 @main.route("/import", methods=["GET", "POST"])
-def import_page():
+def import_page() -> ResponseReturnValue:
     """Import the configured CSV. Appends and de-duplicates unless replace is confirmed."""
     result = None
     if request.method == "POST":
