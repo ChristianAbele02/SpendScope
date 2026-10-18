@@ -373,7 +373,7 @@ def process():
     {confidence, candidates}}, ocr_available, ocr_error, llm_error}``.
     """
     if "image" not in request.files:
-        return jsonify({"error": "No image provided"}), 400
+        return jsonify({"error": t("scan_no_image"), "status": 400}), 400
 
     image_bytes = request.files["image"].read()
 

@@ -38,7 +38,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     migrate.init_app(app, db, directory=MIGRATIONS_DIR, render_as_batch=True)
 
     # Imported here because the route modules import ``db`` from this package.
-    from app import security, stats
+    from app import errors, security, stats
     from app.parser import CATEGORY_COLORS
     from app.routes.api import api
     from app.routes.main import main
@@ -51,6 +51,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     app.register_blueprint(settings, url_prefix="/settings")
     app.register_blueprint(scan, url_prefix="/scan")
     security.init_app(app)
+    errors.init_app(app)
 
     @app.context_processor
     def inject_globals() -> dict:

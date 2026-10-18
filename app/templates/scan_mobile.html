@@ -193,12 +193,11 @@ processBtn.addEventListener('click', async () => {
   formData.append('image', file);
 
   try {
-    const resp = await fetch('{{ url_for("scan.process") }}', {
+    const data = await fetchJSON({{ url_for("scan.process") | tojson }}, {
       method: 'POST',
       headers: { 'X-CSRF-Token': {{ csrf_token() | tojson }} },
       body: formData,
     });
-    const data = await resp.json();
 
     if (!data.ocr_available) {
       document.getElementById('ocrUnavailable').classList.remove('d-none');
@@ -240,6 +239,7 @@ processBtn.addEventListener('click', async () => {
       }
     }
   } catch (e) {
+    // fetchJSON already showed the error as a popup (too large, expired, offline...).
     console.error(e);
   }
 

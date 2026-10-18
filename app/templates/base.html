@@ -108,16 +108,31 @@
   </div>
 </nav>
 
-<div class="container-fluid py-4 px-4">
+<!-- Popup messages: flashed by the server below, or added by showToast() in static/js/app.js -->
+<div id="toastContainer" class="toast-container position-fixed top-0 end-0 p-3" style="margin-top: 3.5rem; z-index: 1090;">
+  {% set toast_styles = {
+    'success': ('text-bg-success', 'fa-circle-check'),
+    'info': ('text-bg-info', 'fa-circle-info'),
+    'warning': ('text-bg-warning', 'fa-triangle-exclamation'),
+    'danger': ('text-bg-danger', 'fa-circle-xmark'),
+  } %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
-      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      {% set bg, icon = toast_styles.get(category, toast_styles['info']) %}
+      <div class="toast align-items-center border-0 {{ bg }}" data-category="{{ category }}"
+           role="{{ 'alert' if category == 'danger' else 'status' }}"
+           aria-live="{{ 'assertive' if category == 'danger' else 'polite' }}" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body"><i class="fa-solid {{ icon }} me-2" aria-hidden="true"></i>{{ message }}</div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                  aria-label="{{ t('close') }}"></button>
+        </div>
       </div>
     {% endfor %}
   {% endwith %}
+</div>
 
+<div class="container-fluid py-4 px-4">
   {% block content %}{% endblock %}
 </div>
 
@@ -126,6 +141,11 @@
 <!-- Server-side data for charts.js, so it holds no hard-coded strings or colours -->
 <script>
   window.APP_LANG = {{ lang | tojson }};
+  window.APP_I18N = {
+    error:        {{ t('error') | tojson }},
+    close:        {{ t('close') | tojson }},
+    networkError: {{ t('error_network') | tojson }},
+  };
   window.MONTH_LABELS_SHORT = {{ month_names_short | tojson }};
   window.CATEGORY_COLORS = {{ category_colors | tojson }};
   window.CHART_LABELS = {
@@ -134,6 +154,7 @@
     total:    {{ t('total') | tojson }},
   };
 </script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

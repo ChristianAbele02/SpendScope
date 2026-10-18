@@ -308,9 +308,9 @@
   const trendYearSel = document.getElementById('trendYearFilter');
   function loadTrendChart(year) {
     const params = year ? `?years=${year}` : '';
-    fetch({{ url_for('api.monthly_trends') | tojson }} + params)
-      .then(r => r.json())
-      .then(data => initTrendChart('trendChart', data));
+    fetchJSON({{ url_for('api.monthly_trends') | tojson }} + params)
+      .then(data => initTrendChart('trendChart', data))
+      .catch(() => {});  // fetchJSON already showed the error popup
   }
   loadTrendChart({{ selected_year }});
   trendYearSel.addEventListener('change', () => loadTrendChart(trendYearSel.value));

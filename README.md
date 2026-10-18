@@ -275,12 +275,13 @@ SpendScope/
 │   ├── stats.py            # Periods, aggregations, forecast, anomaly detection
 │   ├── extraction.py       # Claude vision receipt backend
 │   ├── backup.py           # Automatic/manual backups, restore, backup settings
+│   ├── errors.py           # Error pages, popups after failed forms, JSON errors
 │   ├── forms.py            # Form validation, safe redirects
 │   ├── security.py         # Host check, phone pairing, CSRF tokens
 │   ├── translations.py     # DE/EN strings, t(), |eur and |pct filters
 │   ├── routes/             # main, api, scan, settings blueprints
 │   ├── templates/          # Jinja2 templates (Bootstrap 5 dark)
-│   └── static/             # charts.js, style.css, vendored Bootstrap & Chart.js
+│   └── static/             # app.js (popups, fetch errors), charts.js, style.css, vendored libs
 ├── migrations/             # Alembic schema migrations (Flask-Migrate)
 ├── scripts/                # backtest_forecast.py (forecast evaluation)
 ├── tests/                  # pytest suite (isolated temporary database)
@@ -321,6 +322,12 @@ python scripts\backtest_forecast.py   # score the forecast on past periods (read
 GitHub Actions runs ruff, mypy and pytest on Python 3.11 and 3.12 with the pinned dev lock for
 every push and pull request. The backtest needs a real database, so it runs locally only.
 Dependency updates are done manually by regenerating the lock files (below).
+
+Messages and errors appear as popups (Bootstrap toasts): `flash()` on the server, `showToast()`
+or `fetchJSON()` (which turns failed requests into popups) in the browser. [`app/errors.py`](app/errors.py)
+answers every error in a fitting way: JSON for API and `fetch` calls, a redirect back to the form
+with a popup for failed submissions, and a translated error page otherwise. Unexpected exceptions
+are logged with their traceback and the user only sees a generic message.
 
 Every new POST form needs `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`;
 `tests/test_security.py` fails if one is missing.

@@ -2,6 +2,7 @@
 from flask import Blueprint, jsonify, request
 
 from app import stats as s
+from app.translations import t
 
 api = Blueprint("api", __name__)
 
@@ -28,9 +29,9 @@ def _year_month_args(required: bool = False):
     year = request.args.get("year", type=int)
     month = request.args.get("month", type=int)
     if required and (not year or not month):
-        return year, month, (jsonify({"error": "year and month required"}), 400)
+        return year, month, (jsonify({"error": t("api_year_month_required"), "status": 400}), 400)
     if not _valid_year_month(year, month):
-        return year, month, (jsonify({"error": "invalid year or month"}), 400)
+        return year, month, (jsonify({"error": t("api_invalid_year_month"), "status": 400}), 400)
     return year, month, None
 
 

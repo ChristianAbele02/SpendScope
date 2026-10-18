@@ -30,18 +30,46 @@ def _alias_form(**extra: str) -> dict[str, str]:
 
 # ── CSRF ──────────────────────────────────────────────────────────────────────
 
+def _assert_rejected(app, response) -> None:
+    """A rejected form redirects back with the "form expired" popup and saves nothing."""
+    assert response.status_code == 200  # after following the redirect
+    assert "Formular ist abgelaufen" in response.get_data(as_text=True)
+    with app.app_context():
+        assert StoreAlias.query.count() == 0
+
+
 def test_post_without_csrf_token_is_rejected(csrf_app):
     client = csrf_app.test_client()
-    assert client.post("/settings/store-aliases/add", data=_alias_form()).status_code == 400
-    with csrf_app.app_context():
-        assert StoreAlias.query.count() == 0
+    response = client.post("/settings/store-aliases/add", data=_alias_form())
+    assert response.status_code == 302
+    _assert_rejected(csrf_app, client.get(response.headers["Location"]))
+
+
+def test_rejected_post_returns_to_the_form_page(csrf_app):
+    client = csrf_app.test_client()
+    response = client.post(
+        "/settings/store-aliases/add",
+        data=_alias_form(),
+        headers={"Referer": "http://localhost/settings/store-aliases"},
+    )
+    assert response.headers["Location"] == "/settings/store-aliases"
+
+
+def test_fetch_post_without_csrf_token_gets_json(csrf_app):
+    response = csrf_app.test_client().post(
+        "/scan/process", headers={"Accept": "application/json"}
+    )
+    assert response.status_code == 400
+    assert "Formular ist abgelaufen" in response.get_json()["error"]
 
 
 def test_post_with_wrong_csrf_token_is_rejected(csrf_app):
     client = csrf_app.test_client()
     _token(client)
-    response = client.post("/settings/store-aliases/add", data=_alias_form(csrf_token="forged"))
-    assert response.status_code == 400
+    response = client.post(
+        "/settings/store-aliases/add", data=_alias_form(csrf_token="forged"), follow_redirects=True
+    )
+    _assert_rejected(csrf_app, response)
 
 
 def test_post_with_form_token_is_accepted(csrf_app):
@@ -66,8 +94,10 @@ def test_token_from_another_session_is_rejected(csrf_app):
     token = _token(csrf_app.test_client())
     other = csrf_app.test_client()
     _token(other)
-    response = other.post("/settings/store-aliases/add", data=_alias_form(csrf_token=token))
-    assert response.status_code == 400
+    response = other.post(
+        "/settings/store-aliases/add", data=_alias_form(csrf_token=token), follow_redirects=True
+    )
+    _assert_rejected(csrf_app, response)
 
 
 def test_every_post_form_carries_a_csrf_field(app):

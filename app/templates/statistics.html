@@ -195,12 +195,13 @@
 
 {% block scripts %}
 <script>
-  fetch({{ url_for('api.yearly_comparison') | tojson }})
-    .then(r => r.json())
-    .then(data => initYoYChart('yoyChart', data));
+  // fetchJSON shows an error popup itself; the catch only stops the chain.
+  fetchJSON({{ url_for('api.yearly_comparison') | tojson }})
+    .then(data => initYoYChart('yoyChart', data))
+    .catch(() => {});
 
-  fetch({{ url_for('api.category_trends') | tojson }})
-    .then(r => r.json())
-    .then(data => initCategoryTrendChart('categoryTrendChart', data));
+  fetchJSON({{ url_for('api.category_trends') | tojson }})
+    .then(data => initCategoryTrendChart('categoryTrendChart', data))
+    .catch(() => {});
 </script>
 {% endblock %}
