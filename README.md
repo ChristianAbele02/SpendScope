@@ -337,12 +337,6 @@ pip install -r requirements-dev.txt   # then run the checks above
 - Anyone who can see the QR code (or its URL on the full-screen QR page) can pair a device, and
   traffic on the network is unencrypted HTTP. Use `--local` on networks you do not trust.
 
-## 🧭 Roadmap
-
-- [ ] Line-item extraction and per-item categories from receipts
-- [ ] Desktop review queue for receipts uploaded from the phone
-- [ ] Auto-save scans when all fields have high confidence
-
 ## 📄 License
 
 [MIT](LICENSE) © Christian Abele
