@@ -5,10 +5,10 @@
 **A private, self-hosted household budget book with receipt scanning and a Bayesian spending forecast.**
 
 [![CI](https://github.com/ChristianAbele02/SpendScope/actions/workflows/ci.yml/badge.svg)](https://github.com/ChristianAbele02/SpendScope/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
-![Flask](https://img.shields.io/badge/flask-3.x-000000?logo=flask&logoColor=white)
-![SQLite](https://img.shields.io/badge/sqlite-local-003B57?logo=sqlite&logoColor=white)
-![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![SQLite](https://img.shields.io/badge/sqlite-local-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Snap a receipt with your phone, confirm the pre-filled amount, and see how the month is going:
