@@ -9,7 +9,7 @@ description = "Personal expense tracker (Flask/SQLite) with receipt OCR and budg
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Christian Abele" }]
+authors = [{ name = "Christian Abele-Kretz" }]
 # Loose ranges for installing as a package; exact, reproducible versions are
 # locked in requirements.txt / requirements-dev.txt (see README → Development).
 dependencies = [

@@ -425,4 +425,4 @@ pip install -r requirements-dev.txt   # then run the checks above
 
 ## 📄 License
 
-[MIT](LICENSE) © Christian Abele
+[MIT](LICENSE) © Christian Abele-Kretz
