@@ -341,6 +341,7 @@ Edit `STORE_CATEGORY_MAP` in [`app/parser.py`](app/parser.py) to extend it.
 ```powershell
 pip install -r requirements-dev.txt
 pip install -e . --no-deps
+pre-commit install  # run the checks below automatically before every commit
 
 ruff check .        # lint
 mypy                # type check
@@ -359,6 +360,11 @@ or `fetchJSON()` (which turns failed requests into popups) in the browser. [`app
 answers every error in a fitting way: JSON for API and `fetch` calls, a redirect back to the form
 with a popup for failed submissions, and a translated error page otherwise. Unexpected exceptions
 are logged with their traceback and the user only sees a generic message.
+
+The pre-commit hooks ([`.pre-commit-config.yaml`](.pre-commit-config.yaml)) run ruff and mypy,
+fix trailing whitespace and missing final newlines, check YAML/TOML files, and refuse private
+keys, files over 500 kB (such as `SpendScope.exe`) and anything personal (`data/`,
+`expenses_raw.csv`, `*.db`). `pre-commit run --all-files` runs them by hand.
 
 Every new POST form needs `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`;
 `tests/test_security.py` fails if one is missing.

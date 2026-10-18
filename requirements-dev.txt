@@ -22,6 +22,8 @@ certifi==2026.6.17
     #   httpx
 cffi==2.1.1 ; sys_platform == 'win32'
     # via clr-loader
+cfgv==3.5.0
+    # via pre-commit
 click==8.3.1
     # via flask
 clr-loader==0.3.1 ; sys_platform == 'win32'
@@ -33,10 +35,16 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   qrcode
 coverage==7.16.2
     # via pytest-cov
+distlib==0.4.4
+    # via virtualenv
 distro==1.9.0
     # via anthropic
 docstring-parser==0.18.0
     # via anthropic
+filelock==4.2.2
+    # via
+    #   python-discovery
+    #   virtualenv
 flask==3.1.3
     # via
     #   spendscope (pyproject.toml)
@@ -56,6 +64,8 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via anthropic
+identify==2.6.20
+    # via pre-commit
 idna==3.18
     # via
     #   anyio
@@ -82,6 +92,8 @@ mypy==2.1.0
     # via spendscope (pyproject.toml)
 mypy-extensions==1.1.0
     # via mypy
+nodeenv==1.11.0
+    # via pre-commit
 numpy==2.4.6 ; python_full_version < '3.12'
     # via
     #   spendscope (pyproject.toml)
@@ -90,11 +102,12 @@ numpy==2.5.4 ; python_full_version >= '3.12'
     # via
     #   spendscope (pyproject.toml)
     #   scipy
-packaging==26.0
+packaging==26.3
     # via
     #   pytesseract
     #   pytest
     #   qtpy
+    #   virtualenv
 pathspec==1.1.1
     # via mypy
 pillow==12.1.1
@@ -102,10 +115,14 @@ pillow==12.1.1
     #   spendscope (pyproject.toml)
     #   pytesseract
     #   qrcode
+platformdirs==4.13.4
+    # via virtualenv
 pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
+pre-commit==4.7.0
+    # via spendscope (pyproject.toml)
 proxy-tools==0.1.0
     # via pywebview
 pycparser==3.11 ; implementation_name != 'PyPy' and sys_platform == 'win32'
@@ -147,10 +164,14 @@ pytest==9.0.3
     #   pytest-cov
 pytest-cov==7.1.0
     # via spendscope (pyproject.toml)
+python-discovery==1.6.3
+    # via virtualenv
 pythonnet==3.2.1 ; sys_platform == 'win32'
     # via pywebview
 pywebview==6.2.1
     # via spendscope (pyproject.toml)
+pyyaml==6.0.3
+    # via pre-commit
 qrcode==8.2
     # via spendscope (pyproject.toml)
 qtpy==2.4.3 ; sys_platform == 'openbsd6'
@@ -182,5 +203,7 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
+virtualenv==21.14.11
+    # via pre-commit
 werkzeug==3.1.6
     # via flask

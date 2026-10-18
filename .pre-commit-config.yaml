@@ -1,0 +1,44 @@
+# Checks that run before every commit. Set up once per clone:
+#     pip install -r requirements-dev.txt
+#     pre-commit install
+# Run on everything by hand: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^app/static/vendor/
+      - id: end-of-file-fixer
+        exclude: ^app/static/vendor/
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: ^\.vscode/   # VS Code files allow comments (JSONC)
+      - id: check-merge-conflict
+      - id: detect-private-key
+      # Keeps databases, receipt photos and SpendScope.exe out of git.
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+
+  # Same version as the pin in requirements-dev.txt.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+
+  # mypy needs the project's dependencies, so it runs from the active venv.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: no-personal-data
+        name: no personal data files
+        entry: personal data must not be committed (data/, expenses_raw.csv, *.db)
+        language: fail
+        files: ^(data/|expenses_raw\.csv$)|\.(db|sqlite)$
+        exclude: ^data/\.gitkeep$   # empty placeholder that keeps the folder in git
