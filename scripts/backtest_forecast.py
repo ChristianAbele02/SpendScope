@@ -40,6 +40,7 @@ Metrics:
 import argparse
 import itertools
 import logging
+import math
 import platform
 import sqlite3
 import sys
@@ -73,15 +74,19 @@ MODEL_FROZEN_ON = date(2026, 10, 18)
 # Fewer draws while tuning keeps the grid fast; Monte Carlo error at 5,000
 # draws is small next to the period-to-period differences being scored.
 TUNING_DRAWS = 5_000
-# Hyperparameters of app.stats searched by --tune; _MAX_SHARED_DISPERSION = 0
-# switches the shared monthly factor off. A first grid (20/45/90, 10/25/50,
-# 5/20/80) put the optimum at its edge, so it was widened in that direction.
-# 180 days is about the whole six-period history, i.e. an uncapped prior.
+# Hyperparameters of app.stats searched by --tune. History of earlier searches:
+# - Prior strengths 20/45/90 days, 10/25/50 purchases, profile 5/20/80 put the
+#   optimum at the edge; widened to 45/90/180, 25/50/100, 2/5/20 (winner 180,
+#   100, 5). With six periods, 180 days is the whole history: an uncapped prior.
+# - The shared monthly factor (_MAX_SHARED_DISPERSION 0.5 vs. 0) lost on the
+#   tuning and the holdout periods and is no longer searched.
+# - Now: recency weighting (half-life in periods; inf = equal weights) and a
+#   longer history window, with the uncapped prior strengths searched around.
 TUNING_GRID: dict[str, tuple[float, ...]] = {
-    "_FREQ_PRIOR_STRENGTH_DAYS": (45.0, 90.0, 180.0),
-    "_AMOUNT_PRIOR_STRENGTH": (25.0, 50.0, 100.0),
-    "_PROFILE_PRIOR_STRENGTH": (2.0, 5.0, 20.0),
-    "_MAX_SHARED_DISPERSION": (0.0, 0.5),
+    "_HISTORY_HALF_LIFE_PERIODS": (math.inf, 2.0, 4.0, 8.0),
+    "_PREDICTION_HISTORY_PERIODS": (6, 12),
+    "_FREQ_PRIOR_STRENGTH_DAYS": (90.0, 180.0, 360.0),
+    "_AMOUNT_PRIOR_STRENGTH": (50.0, 100.0, 200.0),
 }
 
 Params = dict[str, float]

@@ -205,6 +205,12 @@ plus one pooled stream for the rare categories.
 Refunds lower the actual total but are excluded from the purchase model. The grocery and fuel trip
 counts on the card are shown for context only. Details are in [`app/stats.py`](app/stats.py).
 
+**Optional recency weighting.** Past periods can count less the older they are (exponential
+decay with a half-life in periods), so the priors follow a rising or falling trend. It is
+**off by default**: `--tune` preferred equal weights on the tuning periods. On the holdout, a
+half-life of 2 to 4 periods reduced the under-forecast only from 36 € to 32 to 34 € and left
+the interval score within 1%, too small a difference on 12 periods to justify switching it on.
+
 **Optional shared monthly factor.** The model can also multiply all streams' rates by one common
 monthly factor, so that a busy week of groceries raises the fuel forecast too. Its variance is
 estimated from how strongly purchase counts of different categories move together. It is

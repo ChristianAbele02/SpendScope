@@ -5,7 +5,7 @@ the period labelled (2024, 3) runs from 7 March to 6 April; see period_bounds.
 """
 import math
 from calendar import monthrange
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sized
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TypeVar
@@ -385,7 +385,12 @@ def _with_trip_projection(trip_stats: dict | None, today: date, period_end: date
 #
 #   * Purchase frequency. The daily purchase rate λ_c gets a Gamma(α₀, β₀)
 #     prior fitted to the last completed periods (empirical Bayes), worth the
-#     history's effective days up to _FREQ_PRIOR_STRENGTH_DAYS. Posterior: Gamma(α₀ + n, β₀ + t). N_c for the rest of the
+#     history's effective days up to _FREQ_PRIOR_STRENGTH_DAYS. Past periods
+#     can be weighted by recency (weight 0.5^((age-1)/h) with half-life h =
+#     _HISTORY_HALF_LIFE_PERIODS), so the priors follow a trend in spending.
+#     Off by default (h = inf): `--tune` preferred equal weights on the tuning
+#     periods, and on the holdout a half-life of 2-4 periods changed the
+#     interval score by less than 1% (bias -36 € → -32 to -34 €). Posterior: Gamma(α₀ + n, β₀ + t). N_c for the rest of the
 #     period is Poisson(λ_c·d) given λ_c, i.e. Negative Binomial marginally.
 #
 #   * Within-period profile. Spending is not spread evenly over a period (in
@@ -434,6 +439,7 @@ def _with_trip_projection(trip_stats: dict | None, today: date, period_end: date
 # scripts/backtest_forecast.py scores the forecast against past periods.
 
 _PREDICTION_HISTORY_PERIODS = 6     # completed periods used to build the priors
+_HISTORY_HALF_LIFE_PERIODS = math.inf  # recency half-life in periods; inf = equal weights (tuned)
 _FREQ_PRIOR_STRENGTH_DAYS = 180.0   # cap on prior weight (in days) for the purchase rate (tuned)
 _AMOUNT_PRIOR_STRENGTH = 100.0      # cap on prior weight (in purchases) for the amount model (tuned)
 _WEAK_AMOUNT_PRIOR = 1.0            # κ₀ when a stream has no history (prior from current data)
@@ -523,20 +529,31 @@ def _within_group_gamma_shape(groups: list[list[float]], min_size: int) -> float
     return _minka_shape(total / n) if n else None
 
 
-def _amount_posterior(hist: list[float], cur: list[float]) -> tuple[float, float, float]:
+def _amount_posterior(
+    hist: list[tuple[float, float]], cur: list[float]
+) -> tuple[float, float, float]:
     """Gamma shape k and the posterior Gamma(a, b) of the amount rate θ.
 
-    The prior on θ is worth κ₀ pseudo-purchases at the historical mean amount
-    (empirical Bayes, κ₀ capped); without history it is centred on the current
-    mean with weight _WEAK_AMOUNT_PRIOR. Caller guarantees at least one amount.
+    The prior on θ is worth κ₀ pseudo-purchases at the recency-weighted
+    historical mean amount, with κ₀ the summed weights (capped); without
+    history it is centred on the current mean with weight _WEAK_AMOUNT_PRIOR.
+    The shape uses all amounts unweighted. Caller guarantees at least one amount.
+
+    Args:
+        hist: ``(amount, weight)`` pairs from past periods.
+        cur: Amounts of the current period.
 
     Returns:
         ``(k, a, b)``.
     """
-    k = _gamma_shape(hist + cur)
-    prior = hist or cur
-    m0 = sum(prior) / len(prior)
-    kappa0 = min(float(len(hist)), _AMOUNT_PRIOR_STRENGTH) if hist else _WEAK_AMOUNT_PRIOR
+    k = _gamma_shape([x for x, _ in hist] + cur)
+    total_weight = sum(w for _, w in hist)
+    if total_weight > 0:
+        m0 = sum(x * w for x, w in hist) / total_weight
+        kappa0 = min(total_weight, _AMOUNT_PRIOR_STRENGTH)
+    else:
+        m0 = sum(cur) / len(cur)
+        kappa0 = _WEAK_AMOUNT_PRIOR
     # Prior mean of the mean amount k/θ is k·b₀/(a₀-1) ≈ m0 for a₀ = κ₀·k.
     a0, b0 = kappa0 * k, kappa0 * m0
     return k, a0 + len(cur) * k, b0 + sum(cur)
@@ -604,7 +621,7 @@ def _exposure(profile: list[float], first_offset: int, last_offset: int) -> floa
     return sum(profile[_profile_bucket(o)] for o in range(first_offset, last_offset + 1))
 
 
-def _stream_key(history: dict[str, list[float]]) -> Callable[[str], str]:
+def _stream_key(history: Mapping[str, Sized]) -> Callable[[str], str]:
     """Map a category to its stream: itself if it has enough history, else pooled."""
 
     def key(cat: str) -> str:
@@ -681,7 +698,7 @@ def _stream_period_counts(
 
 
 def _build_streams(
-    history: dict[str, list[float]],
+    history: dict[str, list[tuple[float, float]]],
     hist_exposure: float,
     current: dict[str, list[float]],
     elapsed_exposure: float,
@@ -689,8 +706,10 @@ def _build_streams(
     """Posterior streams from per-category amounts.
 
     Args:
-        history: Positive amounts per category over the history window.
-        hist_exposure: Effective days covered by the (tracked) history window.
+        history: ``(amount, weight)`` per positive purchase and category over
+            the history window; the weight is the period's recency weight.
+        hist_exposure: Recency-weighted effective days of the (tracked)
+            history window.
         current: Positive amounts per category in the current period so far.
         elapsed_exposure: Effective days of the current period observed so far.
 
@@ -699,10 +718,10 @@ def _build_streams(
         purchases, plus one pooled stream for all remaining categories.
     """
     key = _stream_key(history)
-    hist_g: dict[str, list[float]] = {}
+    hist_g: dict[str, list[tuple[float, float]]] = {}
     cur_g: dict[str, list[float]] = {}
-    for cat, amounts in history.items():
-        hist_g.setdefault(key(cat), []).extend(amounts)
+    for cat, weighted in history.items():
+        hist_g.setdefault(key(cat), []).extend(weighted)
     for cat, amounts in current.items():
         cur_g.setdefault(key(cat), []).extend(amounts)
 
@@ -711,7 +730,7 @@ def _build_streams(
     for name in sorted(set(hist_g) | set(cur_g)):
         h, c = hist_g.get(name, []), cur_g.get(name, [])
         if h and hist_exposure > 0:
-            alpha0, beta0 = len(h) / hist_exposure * kappa_f, kappa_f
+            alpha0, beta0 = sum(w for _, w in h) / hist_exposure * kappa_f, kappa_f
         else:
             alpha0, beta0 = _VAGUE_FREQ_SHAPE, kappa_f or _VAGUE_FREQ_RATE
         k, a, b = _amount_posterior(h, c)
@@ -785,9 +804,18 @@ def _simulate_remaining(
     return total
 
 
+def _recency_weight(age: int) -> float:
+    """Weight of a past period ``age`` periods ago (1 = the last completed one)."""
+    if math.isinf(_HISTORY_HALF_LIFE_PERIODS):
+        return 1.0
+    return 0.5 ** ((age - 1) / _HISTORY_HALF_LIFE_PERIODS)
+
+
 def _prediction_inputs(
     year: int, month: int, today: date
-) -> tuple[dict[str, list[float]], list[int], dict[str, list[float]], float]:
+) -> tuple[
+    dict[str, list[tuple[float, float]]], list[tuple[int, float]], dict[str, list[float]], float
+]:
     """Collect the data for the prediction model.
 
     Args:
@@ -796,10 +824,11 @@ def _prediction_inputs(
         today: Reference date; current-period expenses after it are ignored.
 
     Returns:
-        ``(history, hist_lengths, current, spent_so_far)``: positive amounts
-        per category over the completed prior periods that contain at least one
-        purchase (periods without any are treated as untracked, not as zero
-        spend), the length in days of each of those periods, positive amounts per
+        ``(history, hist_periods, current, spent_so_far)``: ``(amount,
+        recency weight)`` per positive purchase and category over the completed
+        prior periods that contain at least one purchase (periods without any
+        are treated as untracked, not as zero spend), ``(length in days,
+        recency weight)`` of each of those periods, positive amounts per
         category in the current period up to ``today``, and the current
         period's net spend up to ``today`` (refunds included).
     """
@@ -829,17 +858,18 @@ def _prediction_inputs(
             cat = row.category or DEFAULT_CATEGORY
             by_period.setdefault(label, {}).setdefault(cat, []).append(float(row.amount))
 
-    history: dict[str, list[float]] = {}
-    hist_lengths: list[int] = []
-    for label in prior_periods:
+    history: dict[str, list[tuple[float, float]]] = {}
+    hist_periods: list[tuple[int, float]] = []
+    for age, label in enumerate(prior_periods, start=1):
         cats = by_period.get(label)
         if cats:
+            weight = _recency_weight(age)
             pb_start, pb_end = period_bounds(*label)
-            hist_lengths.append((pb_end - pb_start).days + 1)
+            hist_periods.append(((pb_end - pb_start).days + 1, weight))
             for cat, amounts in cats.items():
-                history.setdefault(cat, []).extend(amounts)
+                history.setdefault(cat, []).extend((x, weight) for x in amounts)
 
-    return history, hist_lengths, by_period.get(current_label, {}), round(spent_so_far, 2)
+    return history, hist_periods, by_period.get(current_label, {}), round(spent_so_far, 2)
 
 
 def get_prediction(year: int, month: int, today: date | None = None) -> dict:
@@ -871,9 +901,9 @@ def get_prediction(year: int, month: int, today: date | None = None) -> dict:
     days_remaining = (p_end - today).days
     budget = budget_for_month(year, month)
 
-    history, hist_lengths, current, spent = _prediction_inputs(year, month, today)
+    history, hist_periods, current, spent = _prediction_inputs(year, month, today)
     profile = _period_profile(year, month)
-    hist_exposure = sum(_exposure(profile, 0, length - 1) for length in hist_lengths)
+    hist_exposure = sum(w * _exposure(profile, 0, length - 1) for length, w in hist_periods)
     elapsed_exposure = _exposure(profile, 0, days_elapsed - 1)
     remaining_exposure = _exposure(profile, days_elapsed, days_in_period - 1)
     streams = _build_streams(history, hist_exposure, current, elapsed_exposure)

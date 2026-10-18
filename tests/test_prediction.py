@@ -203,10 +203,10 @@ def test_gamma_shape_edge_cases():
 
 def test_sparse_categories_share_one_stream():
     history = {
-        "Lebensmittel": [20.0] * 30,
-        "Tanken": [60.0] * 12,
-        "Baumarkt": [40.0] * 2,
-        "Online": [25.0] * 3,
+        "Lebensmittel": [(20.0, 1.0)] * 30,
+        "Tanken": [(60.0, 1.0)] * 12,
+        "Baumarkt": [(40.0, 1.0)] * 2,
+        "Online": [(25.0, 1.0)] * 3,
     }
     current = {"Einrichtung": [150.0]}  # no history at all → pooled as well
 
@@ -304,3 +304,27 @@ def test_shared_factor_option_keeps_the_forecast_valid(ctx, monkeypatch):
     assert result["ci_low_total"] >= 40.0
     assert result["ci_low_total"] <= result["predicted_total"] <= result["ci_high_total"]
     assert s.get_prediction(2024, 4, today=TODAY) == result  # still deterministic
+
+
+def test_recency_weights_halve_per_half_life(monkeypatch):
+    monkeypatch.setattr(s, "_HISTORY_HALF_LIFE_PERIODS", 2.0)
+    assert s._recency_weight(1) == 1.0
+    assert s._recency_weight(3) == 0.5
+    assert s._recency_weight(5) == 0.25
+    monkeypatch.setattr(s, "_HISTORY_HALF_LIFE_PERIODS", float("inf"))
+    assert s._recency_weight(6) == 1.0
+
+
+def test_recency_weighting_follows_rising_spending(ctx, monkeypatch):
+    # Six history periods; the purchase amount doubles in the last three.
+    for month, amount in ((10, 20.0), (11, 20.0), (12, 20.0)):
+        for day in (3, 10, 17, 24):
+            _add(date(2023, month, day), amount)
+    for month, amount in ((1, 40.0), (2, 40.0), (3, 40.0)):
+        for day in (3, 10, 17, 24):
+            _add(date(2024, month, day), amount)
+    db.session.commit()
+    flat = s.get_prediction(2024, 4, today=TODAY)["predicted_total"]
+    monkeypatch.setattr(s, "_HISTORY_HALF_LIFE_PERIODS", 1.0)
+    recent = s.get_prediction(2024, 4, today=TODAY)["predicted_total"]
+    assert recent > flat
